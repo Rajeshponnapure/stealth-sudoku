@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- ✅ Allow all traffic to Supabase on any port -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">owyjeacntzcnugfpayeb.supabase.co</domain>
+        <domain includeSubdomains="true">supabase.co</domain>
+    </domain-config>
+    <!-- ✅ Allow all other traffic too (debug mode) -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system"/>
+            <certificates src="user"/>
+        </trust-anchors>
+    </base-config>
+</network-security-config>

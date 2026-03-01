@@ -1,0 +1,130 @@
+name: stealth_sudoku
+description: A premium Sudoku game with advanced features
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.5.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State Management
+  flutter_riverpod: ^2.6.1
+
+  # Secure Storage & Encryption
+  flutter_secure_storage: ^9.2.2
+  cryptography: ^2.7.0
+  pointycastle: ^3.9.1
+  encrypt: ^5.0.3
+
+  # Local Storage
+  shared_preferences: ^2.3.3
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+
+  # Routing
+  go_router: ^14.6.2
+
+  # UI & Animations
+  confetti: ^0.7.0
+  lottie: ^3.2.0
+  flutter_animate: ^4.5.0
+  shimmer: ^3.0.0
+
+  # Utilities
+  uuid: ^4.5.1
+  intl: ^0.19.0
+  equatable: ^2.0.7
+
+  # WebRTC for Chat (Phase 2)
+  socket_io_client: ^2.0.3
+  web_socket_channel: ^3.0.1
+
+  # Biometrics
+  local_auth: ^2.3.0
+
+  # Device Info
+  device_info_plus: ^10.1.2
+  package_info_plus: ^8.1.0
+
+  image_picker: ^1.1.2
+  file_picker: ^10.3.10 
+
+  # Supabase
+  supabase_flutter: ^2.5.9
+  
+  # For connectivity status
+  connectivity_plus: ^6.0.5
+
+  flutter_local_notifications: ^17.2.3
+  permission_handler: ^11.3.1
+  app_settings: ^5.1.1
+  flutter_webrtc: ^1.2.0  
+
+  get_it: ^7.6.0
+
+  emoji_picker_flutter: ^2.2.0
+  audioplayers: ^6.0.0
+  just_audio: ^0.9.40
+  flutter_sound: ^9.2.13
+  path_provider: ^2.1.4
+  flutter_dotenv: ^5.1.0
+
+
+
+  
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  
+  # Linting
+  flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.1
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/icon/app_icon.png"
+  
+  # Adaptive icon for Android
+  adaptive_icon_background: "#1a1a2e"  # Your background color
+  adaptive_icon_foreground: "assets/icon/app_icon_foreground.png"
+  min_sdk_android: 21 # android min sdk min:16, default 21
+  web:
+    generate: true
+    image_path: "assets/icon/app_icon.png"
+    background_color: "#hexcode"
+    theme_color: "#hexcode"
+  windows:
+    generate: true
+    image_path: "assets/icon/app_icon.png"
+    icon_size: 48 # min:48, max:256, default: 48
+  macos:
+    generate: true
+    image_path: "assets/icon/app_icon.png"
+  
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/icon/
+    - .env
+
+  # fonts:
+  #   - family: Poppins
+  #     fonts:
+  #       - asset: assets/fonts/Poppins-Regular.ttf
+  #       - asset: assets/fonts/Poppins-Medium.ttf
+  #         weight: 500
+  #       - asset: assets/fonts/Poppins-SemiBold.ttf
+  #         weight: 600
+  #       - asset: assets/fonts/Poppins-Bold.ttf
+  #         weight: 700
+
+dependency_overrides:
+  web: ^1.0.0
+
