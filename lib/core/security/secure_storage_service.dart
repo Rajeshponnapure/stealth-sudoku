@@ -1,14 +1,14 @@
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class SecureStorageService {
-  final FlutterSecureStorage _storage;
+  final SharedPreferences _prefs;
 
-  SecureStorageService(this._storage);
+  SecureStorageService(this._prefs);
 
   // Write secure data
   Future<void> write(String key, String value) async {
     try {
-      await _storage.write(key: key, value: value);
+      await _prefs.setString('secure_$key', value);
     } catch (e) {
       throw Exception('Failed to write secure data: $e');
     }
@@ -17,7 +17,7 @@ class SecureStorageService {
   // Read secure data
   Future<String?> read(String key) async {
     try {
-      return await _storage.read(key: key);
+      return _prefs.getString('secure_$key');
     } catch (e) {
       throw Exception('Failed to read secure data: $e');
     }
@@ -26,7 +26,7 @@ class SecureStorageService {
   // Delete secure data
   Future<void> delete(String key) async {
     try {
-      await _storage.delete(key: key);
+      await _prefs.remove('secure_$key');
     } catch (e) {
       throw Exception('Failed to delete secure data: $e');
     }
@@ -35,8 +35,7 @@ class SecureStorageService {
   // Check if key exists
   Future<bool> containsKey(String key) async {
     try {
-      final value = await _storage.read(key: key);
-      return value != null;
+      return _prefs.containsKey('secure_$key');
     } catch (e) {
       return false;
     }
@@ -45,7 +44,10 @@ class SecureStorageService {
   // Clear all secure storage
   Future<void> deleteAll() async {
     try {
-      await _storage.deleteAll();
+      final keys = _prefs.getKeys().where((k) => k.startsWith('secure_')).toList();
+      for (final k in keys) {
+        await _prefs.remove(k);
+      }
     } catch (e) {
       throw Exception('Failed to clear secure storage: $e');
     }
@@ -54,7 +56,15 @@ class SecureStorageService {
   // Read all keys
   Future<Map<String, String>> readAll() async {
     try {
-      return await _storage.readAll();
+      final keys = _prefs.getKeys().where((k) => k.startsWith('secure_'));
+      final map = <String, String>{};
+      for (final k in keys) {
+        final val = _prefs.getString(k);
+        if (val != null) {
+          map[k.replaceFirst('secure_', '')] = val;
+        }
+      }
+      return map;
     } catch (e) {
       throw Exception('Failed to read all secure data: $e');
     }

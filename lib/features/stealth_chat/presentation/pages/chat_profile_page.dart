@@ -5,6 +5,7 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/services/auth_service.dart';
 import '../providers/friend_provider.dart';
 import '../providers/chat_provider.dart';
+import '../../../../core/security/session_manager.dart';
 
 class ChatProfilePage extends ConsumerStatefulWidget {
   const ChatProfilePage({super.key});
@@ -132,6 +133,14 @@ class _ChatProfilePageState extends ConsumerState<ChatProfilePage>
         ),
         title: const Text('My Profile'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.lock_outline),
+            onPressed: () {
+              ref.read(sessionProvider.notifier).lock();
+              context.go('/');
+            },
+            tooltip: 'Panic Lock',
+          ),
           if (!_isEditing)
             IconButton(
               icon: const Icon(Icons.edit),

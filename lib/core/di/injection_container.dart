@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 import '../security/crypto_service.dart';
 import '../security/secure_storage_service.dart';
 import '../security/session_manager.dart';
@@ -24,7 +25,8 @@ final cryptoServiceProvider = Provider<CryptoService>((ref) {
 });
 
 final secureStorageServiceProvider = Provider<SecureStorageService>((ref) {
-  return SecureStorageService(ref.watch(flutterSecureStorageProvider));
+  // We extract the underlying SharedPreferences from PreferencesService
+  return SecureStorageService(ref.watch(preferencesServiceProvider).prefs);
 });
 
 final biometricServiceProvider = Provider<BiometricService>((ref) {
@@ -48,10 +50,24 @@ final callSignalingServiceProvider = Provider<CallSignalingService>((ref) {
   return CallSignalingService(ref.watch(supabaseProvider));
 });
 
+// ── Device Identification ──
+final deviceIdProvider = Provider<String>((ref) {
+  // This is usually initialized in main() and overridden
+  throw UnimplementedError('deviceIdProvider must be overridden');
+});
+
 Future<List<Override>> initializeDependencies() async {
   final prefs = await SharedPreferences.getInstance();
   final prefsService = PreferencesService(prefs);
+
+  final storedDeviceId = await prefsService.getDeviceId();
+  final deviceId = storedDeviceId ?? const Uuid().v4();
+  if (storedDeviceId == null) {
+    await prefsService.setDeviceId(deviceId);
+  }
+
   return [
     preferencesServiceProvider.overrideWithValue(prefsService),
+    deviceIdProvider.overrideWithValue(deviceId),
   ];
 }

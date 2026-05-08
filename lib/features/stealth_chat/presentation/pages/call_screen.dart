@@ -4,14 +4,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/di/injection_container.dart';
-import '../providers/chat_provider.dart';
 import '../../data/services/call_signaling_service.dart';
 
 class CallScreen extends ConsumerStatefulWidget {
   final String chatId;
   final bool isVideo;
+  final String? incomingCallId;
+  final String? incomingSdpOffer;
 
-  const CallScreen({super.key, required this.chatId, required this.isVideo});
+  const CallScreen({
+    super.key, 
+    required this.chatId, 
+    required this.isVideo,
+    this.incomingCallId,
+    this.incomingSdpOffer,
+  });
 
   @override
   ConsumerState<CallScreen> createState() => _CallScreenState();
@@ -41,7 +48,16 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     if (kIsWeb) return;
 
     _signalingService = ref.read(callSignalingServiceProvider);
-    _initRenderers().then((_) => _startCall());
+    
+    // ✅ Initialize speakerphone on start
+    Helper.setSpeakerphoneOn(_isSpeaker);
+    
+    if (widget.incomingCallId != null && widget.incomingSdpOffer != null) {
+      _initRenderers().then((_) => _answerCall());
+    } else {
+      _initRenderers().then((_) => _startCall());
+    }
+    
     _setupSignalingCallbacks();
   }
 
@@ -76,6 +92,11 @@ class _CallScreenState extends ConsumerState<CallScreen> {
 
   Future<void> _startCall() async {
     try {
+      final myDeviceId = ref.read(deviceIdProvider);
+      // In a shared room, we can broadcast the call even if they haven't sent a message yet.
+      // ALWAYS broadcast to ensure any device logged into the room gets it.
+      final targetDeviceId = 'broadcast';
+
       // ── Get mic / camera stream ──
       final Map<String, dynamic> mediaConstraints = {
         'audio': true,
@@ -91,67 +112,109 @@ class _CallScreenState extends ConsumerState<CallScreen> {
         setState(() => _localRenderer.srcObject = _localStream);
       }
 
-      // ── Create peer connection with STUN servers ──
+      // ── Create peer connection ──
       _peerConnection = await createPeerConnection({
         'iceServers': [
           {'urls': 'stun:stun.l.google.com:19302'},
-          {'urls': 'stun:stun1.l.google.com:19302'},
-          {'urls': 'stun:stun2.l.google.com:19302'},
         ],
         'sdpSemantics': 'unified-plan',
       });
 
-      // ── Add local tracks ──
       _localStream!.getTracks().forEach((track) {
         _peerConnection!.addTrack(track, _localStream!);
       });
 
-      // ── Handle remote stream ──
       _peerConnection!.onTrack = (event) {
         if (event.streams.isNotEmpty && mounted) {
           setState(() => _remoteRenderer.srcObject = event.streams[0]);
         }
       };
 
-      // ── Connection state changes ──
-      _peerConnection!.onConnectionState = (state) {
-        if (!mounted) return;
-        if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
-          setState(() {
-            _isConnecting = false;
-            _isConnected = true;
-          });
-          _startCallTimer();
-        } else if (state ==
-                RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
-            state ==
-                RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
-          _handleCallEnded(CallStatus.ended);
-        }
-      };
-
-      // ── Get peer from sessions ──
-      final sessions = ref.read(chatSessionsProvider);
-      final session =
-          sessions.firstWhere((s) => s.id == widget.chatId);
-
-      // ── Send SDP offer via Supabase signaling ──
+      // ── Initiate Signaling ──
       await _signalingService.initiateCall(
-        calleeId: session.peerId,
+        calleeDeviceId: targetDeviceId,
         chatId: widget.chatId,
         isVideo: widget.isVideo,
         peerConnection: _peerConnection!,
+        myDeviceId: myDeviceId,
       );
 
       if (mounted) setState(() => _isConnecting = true);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Call failed to start: $e')),
+          SnackBar(content: Text('Call Error: $e')),
         );
         context.pop();
       }
     }
+  }
+
+  Future<void> _answerCall() async {
+    try {
+      final myDeviceId = ref.read(deviceIdProvider);
+      
+      // ── Get mic / camera stream ──
+      final Map<String, dynamic> mediaConstraints = {
+        'audio': true,
+        'video': widget.isVideo
+            ? {'facingMode': 'user', 'width': 640, 'height': 480}
+            : false,
+      };
+
+      _localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+
+      if (mounted) {
+        setState(() => _localRenderer.srcObject = _localStream);
+      }
+
+      // ── Create peer connection ──
+      _peerConnection = await createPeerConnection({
+        'iceServers': [
+          {'urls': 'stun:stun.l.google.com:19302'},
+        ],
+        'sdpSemantics': 'unified-plan',
+      });
+
+      _localStream!.getTracks().forEach((track) {
+        _peerConnection!.addTrack(track, _localStream!);
+      });
+
+      _peerConnection!.onTrack = (event) {
+        if (event.streams.isNotEmpty && mounted) {
+          setState(() => _remoteRenderer.srcObject = event.streams[0]);
+        }
+      };
+
+      // ── Answer Signaling ──
+      await _signalingService.answerCall(
+        callId: widget.incomingCallId!,
+        sdpOffer: widget.incomingSdpOffer!,
+        peerConnection: _peerConnection!,
+        isVideo: widget.isVideo,
+        myDeviceId: myDeviceId,
+      );
+
+      if (mounted) {
+        setState(() {
+          _isConnecting = false;
+          _isConnected = true;
+        });
+      }
+      _startCallTimer();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Answer Error: $e')));
+        context.pop();
+      }
+    }
+  }
+
+  void _toggleSpeaker() {
+    setState(() {
+      _isSpeaker = !_isSpeaker;
+      Helper.setSpeakerphoneOn(_isSpeaker);
+    });
   }
 
   void _startCallTimer() {
@@ -287,11 +350,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     }
 
     // ── Native: full call screen ──
-    final sessions = ref.watch(chatSessionsProvider);
-    final session = sessions.firstWhere(
-      (s) => s.id == widget.chatId,
-      orElse: () => sessions.first,
-    );
+    const partnerName = 'Secure Partner';
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -341,6 +400,37 @@ class _CallScreenState extends ConsumerState<CallScreen> {
               ),
             ),
 
+          // ── Local video PiP (video call only) ──
+          if (widget.isVideo &&
+              _isConnected &&
+              !_cameraOff &&
+              !_isScreenSharing)
+            Positioned(
+              top: 110,
+              right: 16,
+              child: Container(
+                width: 110,
+                height: 155,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.white, width: 2),
+                  boxShadow: [
+                    BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.4),
+                        blurRadius: 8)
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: RTCVideoView(
+                    _localRenderer,
+                    mirror: true,
+                    objectFit: RTCVideoViewObjectFit
+                        .RTCVideoViewObjectFitCover,
+                  ),
+                ),
+              ),
+            ),
           // ── Top bar: name + timer ──
           Positioned(
             top: 0,
@@ -370,9 +460,9 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            session.peerName,
-                            style: const TextStyle(
+                          const Text(
+                            partnerName,
+                            style: TextStyle(
                                 color: Colors.white,
                                 fontSize: 20,
                                 fontWeight: FontWeight.bold),
@@ -418,38 +508,6 @@ class _CallScreenState extends ConsumerState<CallScreen> {
             ),
           ),
 
-          // ── Local video PiP (video call only) ──
-          if (widget.isVideo &&
-              _isConnected &&
-              !_cameraOff &&
-              !_isScreenSharing)
-            Positioned(
-              top: 110,
-              right: 16,
-              child: Container(
-                width: 110,
-                height: 155,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white, width: 2),
-                  boxShadow: [
-                    BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.4),
-                        blurRadius: 8)
-                  ],
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: RTCVideoView(
-                    _localRenderer,
-                    mirror: true,
-                    objectFit: RTCVideoViewObjectFit
-                        .RTCVideoViewObjectFitCover,
-                  ),
-                ),
-              ),
-            ),
-
           // ── Avatar for audio call ──
           if (!widget.isVideo)
             Positioned(
@@ -464,20 +522,18 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                     CircleAvatar(
                       radius: 60,
                       backgroundColor: Colors.blue.shade700,
-                      child: Text(
-                        session.peerName.isNotEmpty
-                            ? session.peerName[0].toUpperCase()
-                            : '?',
-                        style: const TextStyle(
+                      child: const Text(
+                        'S',
+                        style: TextStyle(
                             fontSize: 48,
                             color: Colors.white,
                             fontWeight: FontWeight.bold),
                       ),
                     ),
                     const SizedBox(height: 20),
-                    Text(
-                      session.peerName,
-                      style: const TextStyle(
+                    const Text(
+                      partnerName,
+                      style: TextStyle(
                           color: Colors.white,
                           fontSize: 24,
                           fontWeight: FontWeight.bold),
@@ -554,8 +610,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                           ? Icons.volume_up
                           : Icons.volume_off,
                       label: 'Speaker',
-                      onTap: () =>
-                          setState(() => _isSpeaker = !_isSpeaker),
+                      onTap: _toggleSpeaker,
                       isActive: !_isSpeaker,
                     ),
                     // End call

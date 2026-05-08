@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/di/injection_container.dart';
 import '../providers/chat_provider.dart';
 import '../widgets/chat_input_bar.dart';
 import '../widgets/message_bubble.dart';
+import '../../../../core/security/session_manager.dart';
 
 class GroupChatPage extends ConsumerStatefulWidget {
   final String groupId;
@@ -57,6 +59,7 @@ class _GroupChatPageState extends ConsumerState<GroupChatPage> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final chatState = ref.watch(chatProvider(widget.groupId));
     final currentUserId = ref.watch(currentUserIdProvider);
+    final currentDeviceId = ref.watch(deviceIdProvider);
     final sessions = ref.watch(chatSessionsProvider);
     final session = sessions.firstWhere(
       (s) => s.id == widget.groupId,
@@ -90,6 +93,14 @@ class _GroupChatPageState extends ConsumerState<GroupChatPage> {
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.lock_outline),
+            onPressed: () {
+              ref.read(sessionProvider.notifier).lock();
+              context.go('/');
+            },
+            tooltip: 'Panic Lock',
+          ),
           IconButton(
             icon: const Icon(Icons.video_call),
             onPressed: () =>
@@ -175,7 +186,7 @@ class _GroupChatPageState extends ConsumerState<GroupChatPage> {
                           final msg = chatState.messages[index];
                           return MessageBubble(
                             message: msg,
-                            isMe: msg.senderId == currentUserId,
+                            isMe: (msg.senderDeviceId ?? msg.senderId) == currentDeviceId,
                             onDelete: () {},
                             onRetry: () {},
                           );
@@ -188,11 +199,12 @@ class _GroupChatPageState extends ConsumerState<GroupChatPage> {
             onSend: () {
               final text = _messageController.text.trim();
               if (text.isEmpty) return;
-              final userId = ref.read(currentUserIdProvider);
-              if (userId == null) return;
+              if (currentUserId == null) return;
+              final deviceId = ref.read(deviceIdProvider);
               ref.read(chatProvider(widget.groupId).notifier).sendMessage(
                     content: text,
-                    senderId: userId,
+                    senderId: currentUserId,
+                    senderDeviceId: deviceId,
                     receiverId: widget.groupId,
                   );
               _messageController.clear();

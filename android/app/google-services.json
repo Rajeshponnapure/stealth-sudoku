@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "589888928161",
+    "project_id": "stealth-sudoku",
+    "storage_bucket": "stealth-sudoku.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:589888928161:android:08fa8a92ccc56766d4f3e0",
+        "android_client_info": {
+          "package_name": "com.example.stealth_sudoku"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC9Pi8W3rpZrt_f77m1xmqphl94fH5lYLk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

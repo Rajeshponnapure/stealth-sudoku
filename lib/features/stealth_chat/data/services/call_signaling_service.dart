@@ -26,10 +26,11 @@ class CallSignalingService {
 
   // ── CALLER: Start a call ──
   Future<String> initiateCall({
-    required String calleeId,
+    required String calleeDeviceId,
     required String chatId,
     required bool isVideo,
     required RTCPeerConnection peerConnection,
+    required String myDeviceId,
   }) async {
     _peerConnection = peerConnection;
     final callId = const Uuid().v4();
@@ -44,19 +45,19 @@ class CallSignalingService {
     await _supabase.from('calls').insert({
       'id': callId,
       'chat_id': chatId,
-      'caller_id': currentUserId,
-      'callee_id': calleeId,
+      'caller_id': myDeviceId, // Store Device ID
+      'callee_id': calleeDeviceId, // Target Device ID
       'call_type': isVideo ? 'video' : 'audio',
       'status': 'ringing',
       'sdp_offer': offer.sdp,
     });
 
-    _subscribeToCallUpdates(callId);
-    _subscribeToIceCandidates(callId);
+    _subscribeToCallUpdates(callId, myDeviceId);
+    _subscribeToIceCandidates(callId, myDeviceId);
 
     peerConnection.onIceCandidate = (candidate) {
       if (candidate.candidate != null) {
-        _sendIceCandidate(callId, candidate);
+        _sendIceCandidate(callId, candidate, myDeviceId);
       }
     };
 
@@ -70,6 +71,7 @@ class CallSignalingService {
     required String sdpOffer,
     required RTCPeerConnection peerConnection,
     required bool isVideo,
+    required String myDeviceId,
   }) async {
     _peerConnection = peerConnection;
     _currentCallId = callId;
@@ -89,11 +91,12 @@ class CallSignalingService {
       'status': 'active',
     }).eq('id', callId);
 
-    _subscribeToIceCandidates(callId);
+    _subscribeToIceCandidates(callId, myDeviceId);
+    _subscribeToCallUpdates(callId, myDeviceId);
 
     peerConnection.onIceCandidate = (candidate) {
       if (candidate.candidate != null) {
-        _sendIceCandidate(callId, candidate);
+        _sendIceCandidate(callId, candidate, myDeviceId);
       }
     };
 
@@ -122,11 +125,10 @@ class CallSignalingService {
     _cleanup();
   }
 
-  // ── Listen for incoming calls (start on chat list) ──
-  void listenForIncomingCalls() {
-    final userId = currentUserId;
+  // ── Listen for incoming calls (filtered by deviceId) ──
+  void listenForIncomingCalls(String myDeviceId) {
     _incomingChannel = _supabase
-        .channel('incoming_calls_$userId')
+        .channel('incoming_calls_$myDeviceId')
         .onPostgresChanges(
           event: PostgresChangeEvent.insert,
           schema: 'public',
@@ -134,26 +136,18 @@ class CallSignalingService {
           filter: PostgresChangeFilter(
             type: PostgresChangeFilterType.eq,
             column: 'callee_id',
-            value: userId,
+            value: 'broadcast', // Listen to all broadcasted room calls
           ),
           callback: (payload) async {
             final call = payload.newRecord;
-            if (call['status'] == 'ringing') {
-              try {
-                final caller = await _supabase
-                    .from('users')
-                    .select('display_name')
-                    .eq('id', call['caller_id'])
-                    .single();
-                onIncomingCall?.call(
-                  call['id'],
-                  call['caller_id'],
-                  caller['display_name'] ?? 'Unknown',
-                  call['call_type'] == 'video',
-                );
-              } catch (e) {
-                debugPrint('Error fetching caller info: $e');
-              }
+            // Ignore calls that I initiated!
+            if (call['status'] == 'ringing' && call['caller_id'] != myDeviceId) {
+              onIncomingCall?.call(
+                call['id'],
+                call['caller_id'],
+                'Secure Partner',
+                call['call_type'] == 'video',
+              );
             }
           },
         )
@@ -165,8 +159,8 @@ class CallSignalingService {
     _incomingChannel = null;
   }
 
-  // ── PRIVATE: Watch for call status updates (caller side) ──
-  void _subscribeToCallUpdates(String callId) {
+  // ── PRIVATE: Watch for call status updates ──
+  void _subscribeToCallUpdates(String callId, String myDeviceId) {
     _callChannel = _supabase
         .channel('call_updates_$callId')
         .onPostgresChanges(
@@ -199,13 +193,13 @@ class CallSignalingService {
         .subscribe();
   }
 
-  // ── PRIVATE: Send ICE candidate to Supabase ──
+  // ── PRIVATE: Send ICE candidate ──
   Future<void> _sendIceCandidate(
-      String callId, RTCIceCandidate candidate) async {
+      String callId, RTCIceCandidate candidate, String myDeviceId) async {
     try {
       await _supabase.from('ice_candidates').insert({
         'call_id': callId,
-        'sender_id': currentUserId,
+        'sender_id': myDeviceId, // Store Device ID
         'candidate': candidate.candidate,
         'sdp_mid': candidate.sdpMid,
         'sdp_mline_index': candidate.sdpMLineIndex,
@@ -215,8 +209,8 @@ class CallSignalingService {
     }
   }
 
-  // ── PRIVATE: Receive ICE candidates from other device ──
-  void _subscribeToIceCandidates(String callId) {
+  // ── PRIVATE: Receive ICE candidates ──
+  void _subscribeToIceCandidates(String callId, String myDeviceId) {
     _iceChannel = _supabase
         .channel('ice_candidates_$callId')
         .onPostgresChanges(
@@ -230,7 +224,7 @@ class CallSignalingService {
           ),
           callback: (payload) async {
             final data = payload.newRecord;
-            if (data['sender_id'] != currentUserId) {
+            if (data['sender_id'] != myDeviceId) {
               final candidate = RTCIceCandidate(
                 data['candidate'],
                 data['sdp_mid'],

@@ -2,8 +2,8 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:math';
 import 'package:flutter/foundation.dart';  // for debugPrint
-
-
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 class StealthNotificationService {
   static final FlutterLocalNotificationsPlugin _notifications =
       FlutterLocalNotificationsPlugin();
@@ -216,6 +216,112 @@ class StealthNotificationService {
     await _notifications.cancelAll();
   }
 
+  // Show disguised incoming call notification
+  static Future<void> showIncomingCall({
+    required String roomId,
+  }) async {
+    const disguisedTitle = '🧩 Sudoku Tournament Update!';
+    const disguisedBody = 'Your next opponent is ready! Tap to start the match.';
+    final payload = 'incoming_call:$roomId';
+
+    final androidDetails = AndroidNotificationDetails(
+      'game_updates',
+      'Game Updates',
+      channelDescription: 'Sudoku game achievements and rewards',
+      importance: Importance.max,
+      priority: Priority.max,
+      icon: '@mipmap/launcher_icon',
+      styleInformation: const BigTextStyleInformation(disguisedBody),
+      category: AndroidNotificationCategory.call,
+      playSound: true,
+      enableVibration: true,
+      vibrationPattern: Int64List.fromList([0, 500, 500, 500]),
+    );
+
+    const iosDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+
+    final details = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
+
+    await _notifications.show(
+      roomId.hashCode % 100000 + 10,
+      disguisedTitle,
+      disguisedBody,
+      details,
+      payload: payload,
+    );
+  }
+
+  // Start Global Call Listener
+  static void startGlobalCallListener() async {
+    // Requires Supabase and SharedPreferences
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final roomId = prefs.getString('stealth_room_id');
+      
+      if (roomId != null && roomId.isNotEmpty) {
+        final myDeviceId = prefs.getString('stealth_device_id') ?? 'unknown_device';
+        final myUserId = Supabase.instance.client.auth.currentUser?.id;
+
+        Supabase.instance.client
+            .channel('global_calls_$roomId')
+            .onPostgresChanges(
+              event: PostgresChangeEvent.insert,
+              schema: 'public',
+              table: 'calls',
+              filter: PostgresChangeFilter(
+                type: PostgresChangeFilterType.eq,
+                column: 'chat_id',
+                value: roomId,
+              ),
+              callback: (payload) {
+                final call = payload.newRecord;
+                if (call['status'] == 'ringing' && call['caller_id'] != myDeviceId) {
+                   showIncomingCall(roomId: roomId);
+                }
+              },
+            )
+            .subscribe();
+            
+        // Also listen for new messages to trigger morphed notifications!
+        Supabase.instance.client
+            .channel('global_msgs_$roomId')
+            .onPostgresChanges(
+              event: PostgresChangeEvent.insert,
+              schema: 'public',
+              table: 'messages',
+              filter: PostgresChangeFilter(
+                type: PostgresChangeFilterType.eq,
+                column: 'chat_id',
+                value: roomId,
+              ),
+              callback: (payload) async {
+                final msg = payload.newRecord;
+                // If it's not sent by me, trigger text notification
+                final senderDeviceId = msg['sender_device_id'] ?? msg['sender_id'];
+                final senderId = msg['sender_id'];
+                if (senderDeviceId != myDeviceId && senderId != myUserId) {
+                  await showDisguisedMessage(
+                    chatId: roomId,
+                    senderName: 'Secure User',
+                    message: msg['content'] ?? 'New message',
+                  );
+                }
+              },
+            )
+            .subscribe();
+      }
+    } catch (e) {
+      debugPrint('Failed to start global call listener: $e');
+    }
+  }
+
   // Get active notifications
 static Future<List<ActiveNotification>> getActiveNotifications() async {
   final androidPlugin = _notifications
@@ -246,8 +352,12 @@ static void _onNotificationTapped(NotificationResponse response) {
     }
   } else if (payload.startsWith('friend_request:')) {
     final requestId = payload.split(':')[1];
-    debugPrint('Navigate to friend requests');  // ✅ Fixed
+    debugPrint('Navigate to friend requests');
     _pendingNavigation = {'type': 'friend_request', 'requestId': requestId};
+  } else if (payload.startsWith('incoming_call:')) {
+    final roomId = payload.split(':')[1];
+    debugPrint('Navigate to call unlock screen');
+    _pendingNavigation = {'type': 'incoming_call', 'roomId': roomId};
   }
 }
 

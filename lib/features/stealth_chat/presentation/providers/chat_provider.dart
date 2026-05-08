@@ -10,6 +10,12 @@ import '../../../../shared/services/auth_service.dart';
 import 'package:flutter/foundation.dart'; // ✅ add this
 
 
+// Discovery Provider (Users in my room)
+final roomMembersProvider = FutureProvider<List<Map<String, dynamic>>>((ref) async {
+  final messageService = ref.watch(messageServiceProvider);
+  return await messageService.getUsersInMyRoom();
+});
+
 // Repository Provider (Local Storage)
 final messageRepositoryProvider = Provider((ref) {
   return MessageRepository(
@@ -121,6 +127,29 @@ class ChatSessionsNotifier extends StateNotifier<List<ChatSession>> {
     rethrow;
   }
 }
+
+  Future<String> joinOrCreateRoomSession(String roomId) async {
+    try {
+      if (_authService.isAuthenticated) {
+        final roomUuid = await _messageService.joinOrCreateRoom(roomId);
+        final session = ChatSession(
+          id: roomUuid,
+          peerId: 'group_$roomId',
+          peerName: 'Room $roomId',
+          createdAt: DateTime.now(),
+          lastActivityAt: DateTime.now(),
+        );
+        await _repository.saveChatSession(session);
+        await loadSessions();
+        return roomUuid;
+      } else {
+        throw Exception('Must be in cloud mode to join rooms.');
+      }
+    } catch (e) {
+      debugPrint('Error joining room: $e');
+      rethrow;
+    }
+  }
   Future<void> updateSession(ChatSession session) async {
     await _repository.saveChatSession(session);
     await loadSessions();
@@ -169,8 +198,8 @@ Future<void> deleteSession(String chatId) async {
     await updateSession(updated);
   }
 
-  void refresh() {
-    loadSessions();
+  Future<void> refresh() async {
+    await loadSessions();
   }
 }
 
@@ -190,12 +219,14 @@ class ChatState {
   final bool isLoading;
   final String? error;
   final bool isTyping;
+  final String? peerDeviceId;
 
   const ChatState({
     this.messages = const [],
     this.isLoading = false,
     this.error,
     this.isTyping = false,
+    this.peerDeviceId,
   });
 
   ChatState copyWith({
@@ -203,12 +234,14 @@ class ChatState {
     bool? isLoading,
     String? error,
     bool? isTyping,
+    String? peerDeviceId,
   }) {
     return ChatState(
       messages: messages ?? this.messages,
       isLoading: isLoading ?? this.isLoading,
       error: error ?? this.error,
       isTyping: isTyping ?? this.isTyping,
+      peerDeviceId: peerDeviceId ?? this.peerDeviceId,
     );
   }
 }
@@ -240,11 +273,16 @@ class ChatNotifier extends StateNotifier<ChatState> {
 
   void _subscribeToMessages() {
     _messageSubscription?.cancel();
-    _messageSubscription = _messageService.subscribeToMessages(chatId).listen(
+    final deviceId = _ref.read(deviceIdProvider);
+    _messageSubscription = _messageService.subscribeToMessages(chatId, myDeviceId: deviceId).listen(
       (newMessage) {
         // Add new message if not already exists
         if (!state.messages.any((m) => m.id == newMessage.id)) {
-          state = state.copyWith(messages: [...state.messages, newMessage]);
+          final isPeer = newMessage.senderId != deviceId;
+          state = state.copyWith(
+            messages: [...state.messages, newMessage],
+            peerDeviceId: isPeer ? newMessage.senderId : state.peerDeviceId,
+          );
         }
       },
       onError: (error) {
@@ -275,6 +313,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
   Future<void> sendMessage({
     required String content,
     required String senderId,
+    required String senderDeviceId,
     required String receiverId,
     MessageType type = MessageType.text,
     String? filePath,
@@ -293,7 +332,9 @@ class ChatNotifier extends StateNotifier<ChatState> {
     final message = Message(
       id: messageId,
       chatId: chatId,
+      roomId: chatId,
       senderId: senderId,
+      senderDeviceId: senderDeviceId,
       receiverId: receiverId,
       content: content,
       type: type,
@@ -313,7 +354,11 @@ class ChatNotifier extends StateNotifier<ChatState> {
       if (_authService.isAuthenticated) {
         // Send via Supabase
         await _messageService.sendMessage(
+          id: messageId,
           chatId: chatId,
+          senderId: senderId,
+          senderDeviceId: senderDeviceId,
+          receiverId: receiverId,
           content: content,
           type: type,
           fileUrl: filePath,

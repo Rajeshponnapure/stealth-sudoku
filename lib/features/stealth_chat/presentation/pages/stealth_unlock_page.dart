@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/security/session_manager.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/di/injection_container.dart';
+import '../../../../shared/services/auth_service.dart';
 
 
 class StealthUnlockPage extends ConsumerStatefulWidget {
@@ -18,6 +19,7 @@ class _StealthUnlockPageState extends ConsumerState<StealthUnlockPage> {
   final _pinController = TextEditingController();
   bool _isLoading = false;
   String? _errorMessage;
+  bool _obscurePin = true;
 
   @override
   void dispose() {
@@ -82,7 +84,7 @@ class _StealthUnlockPageState extends ConsumerState<StealthUnlockPage> {
                       const SizedBox(height: 32),
                       TextField(
                         controller: _pinController,
-                        obscureText: true,
+                        obscureText: _obscurePin,
                         textAlign: TextAlign.center,
                         keyboardType: TextInputType.number,
                         maxLength: 6,
@@ -96,6 +98,16 @@ class _StealthUnlockPageState extends ConsumerState<StealthUnlockPage> {
                           counterText: '',
                           errorText: _errorMessage,
                           prefixIcon: const Icon(Icons.vpn_key),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscurePin ? Icons.visibility_off : Icons.visibility,
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _obscurePin = !_obscurePin;
+                              });
+                            },
+                          ),
                         ),
                         onChanged: (value) {
                           setState(() {
@@ -178,9 +190,23 @@ class _StealthUnlockPageState extends ConsumerState<StealthUnlockPage> {
                       ),
 
                       const SizedBox(height: 8),
-                      TextButton(
-                        onPressed: () => context.pop(),
-                        child: const Text('Cancel'),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          TextButton(
+                            onPressed: () => context.pop(),
+                            child: const Text('Cancel'),
+                          ),
+                          const SizedBox(width: 16),
+                          TextButton(
+                            onPressed: () => context.push('/sys_config/register'),
+                            style: TextButton.styleFrom(
+                              foregroundColor: isDark ? AppTheme.primaryDark : AppTheme.primaryLight,
+                              textStyle: const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            child: const Text('Create a Room'),
+                          ),
+                        ],
                       ),
                       const Spacer(),
                       Container(
@@ -198,7 +224,7 @@ class _StealthUnlockPageState extends ConsumerState<StealthUnlockPage> {
                             const SizedBox(width: 12),
                             Expanded(
                               child: Text(
-                                'First time? Enter any 6-digit PIN to create your secure code.',
+                                'Enter your room code to login. If you do not have a room yet, click "Create a Room".',
                                 style: TextStyle(
                                   fontSize: 12,
                                   color: isDark
@@ -239,25 +265,31 @@ class _StealthUnlockPageState extends ConsumerState<StealthUnlockPage> {
 
     try {
       debugPrint('🔐 Calling session unlock...');
-      final success = await ref.read(sessionProvider.notifier).unlock(pin);
+      final authService = ref.read(authServiceProvider);
+      final prefs = ref.read(preferencesServiceProvider);
+
+      final success = await ref.read(sessionProvider.notifier).unlock(pin, force: true);
       debugPrint('🔐 Unlock result: $success');
 
-      await Future.delayed(const Duration(milliseconds: 100));
-
-      if (!mounted) return;
-
-      setState(() {
-        _isLoading = false;
-      });
-
       if (success) {
-        debugPrint(
-            '🔐 Session state after unlock: ${ref.read(sessionProvider).status}');
-        debugPrint('🔐 Navigating to /sys_config/list');
-        context.go('/sys_config/list');
+        // ── Personal Vault Login ──
+        if (!authService.isAuthenticated) {
+          try {
+            final nickname = await prefs.getNickname() ?? 'secure_user';
+            final roomId = await prefs.getRoomId() ?? pin;
+            await authService.signInToVault(nickname, pin, roomId);
+          } catch (e) {
+            debugPrint('🔐 Failed to enter vault: $e');
+          }
+        }
+
+        if (mounted) {
+          context.go('/sys_config/list');
+        }
       } else {
         setState(() {
           _errorMessage = 'Invalid PIN';
+          _isLoading = false;
         });
         _pinController.clear();
       }
@@ -288,7 +320,9 @@ class _StealthUnlockPageState extends ConsumerState<StealthUnlockPage> {
 
       if (success) {
         debugPrint('🔐 Biometric unlock successful');
-        context.go('/sys_config/list');
+        if (mounted) {
+          context.go('/sys_config/list');
+        }
       } else {
         setState(() {
           _errorMessage = 'Biometric authentication failed';

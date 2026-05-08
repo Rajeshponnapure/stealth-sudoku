@@ -5,8 +5,10 @@ import 'package:flutter/foundation.dart'; // ✅ add this
 
 class PreferencesService {
   final SharedPreferences _prefs;
+  SharedPreferences get prefs => _prefs;
   static const String _savedGameKey = 'saved_game';
   static const String _hasSavedGameKey = 'has_saved_game';
+  static const String _deviceIdKey = 'stealth_device_id';
 
   PreferencesService(this._prefs);
 
@@ -140,6 +142,39 @@ class PreferencesService {
 
   Future<void> setAdvancedModeEnabled(bool value) async {
     await _prefs.setBool('adv_mode_enabled', value);
+  }
+
+  // Stealth Registration
+  Future<String?> getNickname() async {
+    return _prefs.getString('stealth_nickname');
+  }
+
+  Future<void> setNickname(String value) async {
+    await _prefs.setString('stealth_nickname', value);
+  }
+
+  Future<bool> isStealthRegistered() async {
+    return _prefs.getBool('stealth_registered') ?? false;
+  }
+
+  Future<void> setStealthRegistered(bool value) async {
+    await _prefs.setBool('stealth_registered', value);
+  }
+
+  Future<String?> getRoomId() async {
+    return _prefs.getString('stealth_room_id');
+  }
+
+  Future<void> setRoomId(String value) async {
+    await _prefs.setString('stealth_room_id', value);
+  }
+
+  Future<String?> getDeviceId() async {
+    return _prefs.getString(_deviceIdKey);
+  }
+
+  Future<void> setDeviceId(String value) async {
+    await _prefs.setString(_deviceIdKey, value);
   }
 
   // Clear all data

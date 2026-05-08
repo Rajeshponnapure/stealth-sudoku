@@ -19,7 +19,9 @@ enum MessageStatus {
 class Message extends Equatable {
   final String id;
   final String chatId;
+  final String? roomId;
   final String senderId;
+  final String? senderDeviceId;
   final String receiverId;
   final String content;
   final MessageType type;
@@ -37,7 +39,9 @@ class Message extends Equatable {
   const Message({
     required this.id,
     required this.chatId,
+    this.roomId,
     required this.senderId,
+    this.senderDeviceId,
     required this.receiverId,
     required this.content,
     required this.type,
@@ -56,7 +60,9 @@ class Message extends Equatable {
   Message copyWith({
     String? id,
     String? chatId,
+    String? roomId,
     String? senderId,
+    String? senderDeviceId,
     String? receiverId,
     String? content,
     MessageType? type,
@@ -74,7 +80,9 @@ class Message extends Equatable {
     return Message(
       id: id ?? this.id,
       chatId: chatId ?? this.chatId,
+      roomId: roomId ?? this.roomId,
       senderId: senderId ?? this.senderId,
+      senderDeviceId: senderDeviceId ?? this.senderDeviceId,
       receiverId: receiverId ?? this.receiverId,
       content: content ?? this.content,
       type: type ?? this.type,
@@ -95,7 +103,9 @@ class Message extends Equatable {
     return {
       'id': id,
       'chatId': chatId,
+      'roomId': roomId,
       'senderId': senderId,
+      'senderDeviceId': senderDeviceId,
       'receiverId': receiverId,
       'content': content,
       'type': type.name,
@@ -116,7 +126,9 @@ class Message extends Equatable {
     return Message(
       id: json['id'] as String,
       chatId: json['chatId'] as String,
+      roomId: json['roomId'] as String?,
       senderId: json['senderId'] as String,
+      senderDeviceId: json['senderDeviceId'] as String?,
       receiverId: json['receiverId'] as String,
       content: json['content'] as String,
       type: MessageType.values.firstWhere(
@@ -149,7 +161,9 @@ class Message extends Equatable {
   List<Object?> get props => [
         id,
         chatId,
+        roomId,
         senderId,
+        senderDeviceId,
         receiverId,
         content,
         type,

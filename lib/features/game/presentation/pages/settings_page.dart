@@ -4,11 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/di/injection_container.dart';
 import '../../../../core/constants/app_constants.dart';
-import '../providers/theme_provider.dart';
-import '../../../stealth_chat/presentation/providers/auth_provider.dart';
+import '../../../../core/theme/app_theme.dart';
 import '../../../../core/security/session_manager.dart';
-
-
 
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key});
@@ -21,9 +18,40 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   int _secretTapCount = 0;
   DateTime? _lastTapTime;
 
+  // ✅ Local state — loaded synchronously from already-initialized SharedPreferences
+  bool _hintsEnabled = true;
+  bool _autoCheck = true;
+  bool _highlightCells = true;
+  bool _soundEnabled = true;
+  bool _vibrationEnabled = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    final prefs = ref.read(preferencesServiceProvider);
+    final hint = await prefs.isHintEnabled();
+    final auto = await prefs.isAutoCheckEnabled();
+    final highlight = await prefs.isHighlightEnabled();
+    final sound = await prefs.isSoundEnabled();
+    final vibration = await prefs.isVibrationEnabled();
+    if (mounted) {
+      setState(() {
+        _hintsEnabled = hint;
+        _autoCheck = auto;
+        _highlightCells = highlight;
+        _soundEnabled = sound;
+        _vibrationEnabled = vibration;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final prefsService = ref.watch(preferencesServiceProvider);
+    final prefs = ref.watch(preferencesServiceProvider);
     final themeMode = ref.watch(themeModeProvider);
     final isDark = themeMode == ThemeMode.dark;
 
@@ -34,7 +62,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // Theme Section
+          // ── Appearance ──────────────────────────────────────────────────
           _buildSection(
             'Appearance',
             [
@@ -53,91 +81,66 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           ),
           const SizedBox(height: 24),
 
-          // Game Settings
+          // ── Game Settings ───────────────────────────────────────────────
           _buildSection(
             'Game Settings',
             [
-              FutureBuilder<bool>(
-                future: prefsService.isHintEnabled(),
-                builder: (context, snapshot) {
-                  return SwitchListTile(
-                    title: const Text('Enable Hints'),
-                    subtitle: const Text('Show hint button during game'),
-                    value: snapshot.data ?? true,
-                    onChanged: (value) {
-                      prefsService.setHintEnabled(value);
-                      setState(() {});
-                    },
-                  );
+              SwitchListTile(
+                title: const Text('Enable Hints'),
+                subtitle: const Text('Show hint button during game'),
+                value: _hintsEnabled,
+                onChanged: (value) {
+                  setState(() => _hintsEnabled = value);
+                  prefs.setHintEnabled(value);
                 },
               ),
-              FutureBuilder<bool>(
-                future: prefsService.isAutoCheckEnabled(),
-                builder: (context, snapshot) {
-                  return SwitchListTile(
-                    title: const Text('Auto Check'),
-                    subtitle: const Text('Automatically check for errors'),
-                    value: snapshot.data ?? true,
-                    onChanged: (value) {
-                      prefsService.setAutoCheckEnabled(value);
-                      setState(() {});
-                    },
-                  );
+              SwitchListTile(
+                title: const Text('Auto Check'),
+                subtitle: const Text('Automatically check for errors'),
+                value: _autoCheck,
+                onChanged: (value) {
+                  setState(() => _autoCheck = value);
+                  prefs.setAutoCheckEnabled(value);
                 },
               ),
-              FutureBuilder<bool>(
-                future: prefsService.isHighlightEnabled(),
-                builder: (context, snapshot) {
-                  return SwitchListTile(
-                    title: const Text('Highlight Cells'),
-                    subtitle: const Text('Highlight selected row/column'),
-                    value: snapshot.data ?? true,
-                    onChanged: (value) {
-                      prefsService.setHighlightEnabled(value);
-                      setState(() {});
-                    },
-                  );
+              SwitchListTile(
+                title: const Text('Highlight Cells'),
+                subtitle: const Text('Highlight selected row/column'),
+                value: _highlightCells,
+                onChanged: (value) {
+                  setState(() => _highlightCells = value);
+                  prefs.setHighlightEnabled(value);
                 },
               ),
             ],
           ),
           const SizedBox(height: 24),
 
-          // Sound & Haptics
+          // ── Sound & Haptics ─────────────────────────────────────────────
           _buildSection(
             'Sound & Haptics',
             [
-              FutureBuilder<bool>(
-                future: prefsService.isSoundEnabled(),
-                builder: (context, snapshot) {
-                  return SwitchListTile(
-                    title: const Text('Sound Effects'),
-                    value: snapshot.data ?? true,
-                    onChanged: (value) {
-                      prefsService.setSoundEnabled(value);
-                      setState(() {});
-                    },
-                  );
+              SwitchListTile(
+                title: const Text('Sound Effects'),
+                value: _soundEnabled,
+                onChanged: (value) {
+                  setState(() => _soundEnabled = value);
+                  prefs.setSoundEnabled(value);
                 },
               ),
-              FutureBuilder<bool>(
-                future: prefsService.isVibrationEnabled(),
-                builder: (context, snapshot) {
-                  return SwitchListTile(
-                    title: const Text('Vibration'),
-                    value: snapshot.data ?? true,
-                    onChanged: (value) {
-                      prefsService.setVibrationEnabled(value);
-                      setState(() {});
-                    },
-                  );
+              SwitchListTile(
+                title: const Text('Vibration'),
+                value: _vibrationEnabled,
+                onChanged: (value) {
+                  setState(() => _vibrationEnabled = value);
+                  prefs.setVibrationEnabled(value);
                 },
               ),
             ],
           ),
           const SizedBox(height: 24),
 
-          // About
+          // ── About ───────────────────────────────────────────────────────
           _buildSection(
             'About',
             [
@@ -160,14 +163,46 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 title: const Text('Help & Support'),
                 trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                 onTap: () {
-                  // Show help dialog
+                  showDialog(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text('Help & Support'),
+                      content: const Text(
+                        'For support, contact us at support@stealthsudoku.com',
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => ctx.pop(),
+                          child: const Text('OK'),
+                        ),
+                      ],
+                    ),
+                  );
                 },
               ),
               ListTile(
                 title: const Text('Privacy Policy'),
                 trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                 onTap: () {
-                  // Show privacy policy
+                  showDialog(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text('Privacy Policy'),
+                      content: const SingleChildScrollView(
+                        child: Text(
+                          'Stealth Sudoku does not collect or share any personal data. '
+                          'All communication is encrypted and stored securely. '
+                          'We do not sell your data to third parties.',
+                        ),
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => ctx.pop(),
+                          child: const Text('Close'),
+                        ),
+                      ],
+                    ),
+                  );
                 },
               ),
             ],
@@ -241,47 +276,16 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
     if (_secretTapCount >= AppConstants.stealthTapCount) {
       _secretTapCount = 0;
-      _showStealthUnlock();
+
+      // Go directly to unlock screen for better stealth
+      final isUnlocked = ref.read(sessionProvider).status == SessionStatus.unlocked;
+      if (isUnlocked) {
+        context.push('/sys_config/list');
+      } else {
+        context.push('/sys_config/unlock');
+      }
     }
   }
-
-  void _showStealthUnlock() {
-  showDialog(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: const Text('🔐 Stealth Mode'),
-      content: const Text('Access secure chat system?'),
-      actions: [
-        TextButton(
-          onPressed: () => context.pop(),
-          child: const Text('Cancel'),
-        ),
-        TextButton(
-          onPressed: () {
-            context.pop();
-            
-            // Check if authenticated
-            final isAuthenticated = ref.read(isAuthenticatedProvider);
-            final sessionStatus = ref.read(sessionProvider).status;
-            
-            if (!isAuthenticated) {
-              // Not authenticated - go to login
-              context.push('/sys_config/login');
-            } else if (sessionStatus != SessionStatus.unlocked) {
-              // Authenticated but locked - go to unlock
-              context.push('/sys_config/unlock');
-            } else {
-              // Authenticated and unlocked - go to chat list
-              context.push('/sys_config/list');
-            }
-          },
-          child: const Text('Continue'),
-        ),
-      ],
-    ),
-  );
-}
-
 
   void _showResetDialog() {
     showDialog(
@@ -298,16 +302,24 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           ),
           TextButton(
             onPressed: () async {
-                  final messenger = ScaffoldMessenger.of(context);  // ✅ capture before await
-                  final router = GoRouter.of(context);              // ✅ capture before await
-                  await ref.read(preferencesServiceProvider).clearAll();
-                  if (mounted) {
-                    router.pop();
-                    messenger.showSnackBar(
-                      const SnackBar(content: Text('All data has been reset')),
-                    );
-                  }
-                },
+              final messenger = ScaffoldMessenger.of(context);
+              final router = GoRouter.of(context);
+              await ref.read(preferencesServiceProvider).clearAll();
+              // Reset local state after clear
+              if (mounted) {
+                setState(() {
+                  _hintsEnabled = true;
+                  _autoCheck = true;
+                  _highlightCells = true;
+                  _soundEnabled = true;
+                  _vibrationEnabled = true;
+                });
+                router.pop();
+                messenger.showSnackBar(
+                  const SnackBar(content: Text('All data has been reset')),
+                );
+              }
+            },
             style: TextButton.styleFrom(foregroundColor: Colors.red),
             child: const Text('Reset'),
           ),

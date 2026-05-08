@@ -2,13 +2,39 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_theme.dart' as app_theme;
-import '../providers/theme_provider.dart';
+import '../../../../core/theme/app_theme.dart';
 
-class HomePage extends ConsumerWidget {
+import '../../../../shared/services/stealth_notification_service.dart';
+
+class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends ConsumerState<HomePage> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkPendingNavigations();
+    });
+  }
+
+  void _checkPendingNavigations() {
+    final nav = StealthNotificationService.getPendingNavigation();
+    if (nav != null && nav['type'] == 'incoming_call') {
+      final roomId = nav['roomId'];
+      if (roomId != null) {
+        // Go to unlock screen which will handle redirect to the chat room
+        context.push('/sys_config/unlock');
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final themeMode = ref.watch(themeModeProvider);
 
@@ -132,40 +158,6 @@ class HomePage extends ConsumerWidget {
 
               const SizedBox(height: 32),
 
-              // Game Modes Section
-              const Text(
-                'Game Modes',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              Row(
-                children: [
-                  Expanded(
-                    child: _ModeCard(
-                      title: 'AI Battle',
-                      icon: Icons.smart_toy,
-                      color: Colors.red,
-                      onTap: () => context.push('/battle'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _ModeCard(
-                      title: 'Explore',
-                      icon: Icons.explore,
-                      color: Colors.purple,
-                      onTap: () => context.push('/explore'),
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 32),
-
               // Daily Challenge Banner
               Container(
                 padding: const EdgeInsets.all(20),
@@ -234,14 +226,6 @@ class HomePage extends ConsumerWidget {
             label: 'Home',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.emoji_events),
-            label: 'Battle',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.explore),
-            label: 'Explore',
-          ),
-          BottomNavigationBarItem(
             icon: Icon(Icons.person),
             label: 'Profile',
           ),
@@ -252,12 +236,6 @@ class HomePage extends ConsumerWidget {
               // Already on home
               break;
             case 1:
-              context.push('/battle');
-              break;
-            case 2:
-              context.push('/explore');
-              break;
-            case 3:
               context.push('/profile');
               break;
           }
@@ -273,7 +251,7 @@ class HomePage extends ConsumerWidget {
         duration: const Duration(seconds: 2),
       ),
     );
-    // context.push('/game/$difficulty');
+    context.push('/game/$difficulty');
   }
 }
 
@@ -351,56 +329,4 @@ class _DifficultyCard extends StatelessWidget {
   }
 }
 
-class _ModeCard extends StatelessWidget {
-  final String title;
-  final IconData icon;
-  final Color color;
-  final VoidCallback onTap;
 
-  const _ModeCard({
-    required this.title,
-    required this.icon,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      elevation: 4,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            children: [
-              Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha:0.1),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Icon(
-                  icon,
-                  color: color,
-                  size: 32,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}

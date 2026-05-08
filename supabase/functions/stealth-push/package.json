@@ -1,0 +1,9 @@
+{
+  "name": "stealth-push",
+  "version": "0.1.0",
+  "main": "index.js",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.0.0",
+    "node-fetch": "^2.6.7"
+  }
+}

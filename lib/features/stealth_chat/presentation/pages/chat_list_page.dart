@@ -4,7 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/security/session_manager.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/di/injection_container.dart';
-import '../../../../shared/services/auth_service.dart';
+
 import '../providers/chat_provider.dart';
 import '../providers/auth_provider.dart';
 
@@ -17,8 +17,8 @@ class ChatListPage extends ConsumerStatefulWidget {
 
 class _ChatListPageState extends ConsumerState<ChatListPage> {
   final _searchController = TextEditingController();
-  List<Map<String, dynamic>> _searchResults = [];
-  bool _isSearching = false;
+
+
 
   @override
   void initState() {
@@ -37,7 +37,8 @@ class _ChatListPageState extends ConsumerState<ChatListPage> {
         _showIncomingCallDialog(callId, callerName, isVideo);
       }
     };
-    signalingService.listenForIncomingCalls();
+    final deviceId = ref.read(deviceIdProvider);
+    signalingService.listenForIncomingCalls(deviceId);
   }
 
   void _showIncomingCallDialog(
@@ -122,41 +123,7 @@ class _ChatListPageState extends ConsumerState<ChatListPage> {
     super.dispose();
   }
 
-  Future<void> _searchUsers(String query) async {
-    if (query.isEmpty) {
-      setState(() {
-        _searchResults = [];
-        _isSearching = false;
-      });
-      return;
-    }
-    final isAuthenticated = ref.read(isAuthenticatedProvider);
-    if (!isAuthenticated) {
-      setState(() {
-        _searchResults = [];
-        _isSearching = false;
-      });
-      return;
-    }
-    setState(() => _isSearching = true);
-    try {
-      final results =
-          await ref.read(authServiceProvider).searchUsers(query);
-      if (mounted) {
-        setState(() {
-          _searchResults = results;
-          _isSearching = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isSearching = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Search failed: $e')),
-        );
-      }
-    }
-  }
+
 
   Future<void> _startChat(
       String participantId, String displayName) async {
@@ -166,7 +133,6 @@ class _ChatListPageState extends ConsumerState<ChatListPage> {
           .createSession(participantId, displayName);
       if (mounted) {
         _searchController.clear();
-        setState(() => _searchResults = []);
         ref.read(chatSessionsProvider.notifier).refresh();
         final sessions = ref.read(chatSessionsProvider);
         final newSession = sessions.firstWhere(
@@ -185,29 +151,22 @@ class _ChatListPageState extends ConsumerState<ChatListPage> {
   }
 
   Future<void> _handleLogout() async {
-    final isAuthenticated = ref.read(isAuthenticatedProvider);
-    if (!isAuthenticated) {
-      await ref.read(sessionProvider.notifier).lock();
-      if (mounted) context.go('/');
-      return;
-    }
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Sign Out'),
-        content: const Text('Are you sure you want to sign out?'),
+        title: const Text('Close Session'),
+        content: const Text('Are you sure you want to close this secure session?'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context, false),
               child: const Text('Cancel')),
           TextButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('Sign Out')),
+              child: const Text('Close')),
         ],
       ),
     );
     if (confirm == true && mounted) {
-      await ref.read(authServiceProvider).signOut();
       await ref.read(sessionProvider.notifier).lock();
       if (mounted) context.go('/');
     }
@@ -216,6 +175,7 @@ class _ChatListPageState extends ConsumerState<ChatListPage> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
     final sessions = ref.watch(chatSessionsProvider);
     final isAuthenticated = ref.watch(isAuthenticatedProvider);
 
@@ -223,200 +183,138 @@ class _ChatListPageState extends ConsumerState<ChatListPage> {
       appBar: AppBar(
         title: const Text('Secure Messages'),
         actions: [
-          // ✅ Add this as FIRST item in actions:
-            IconButton(
-              icon: const Icon(Icons.account_circle),
-              tooltip: 'My Profile',
-              onPressed: () => context.push('/sys_config/profile'),
-            ),
-
           IconButton(
-            icon: const Icon(Icons.people),
-            tooltip: 'Friends',
-            onPressed: () => context.push('/sys_config/friends'),
-          ),
-          IconButton(
-            icon: const Icon(Icons.notifications),
-            tooltip: 'Notifications',
-            onPressed: () =>
-                context.push('/sys_config/notifications'),
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () =>
-                ref.read(chatSessionsProvider.notifier).refresh(),
-          ),
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () => _showSecuritySettings(context, ref),
-          ),
-          IconButton(
-            icon: const Icon(Icons.lock_clock),
-            onPressed: () =>
-                _showSessionInfo(context, isAuthenticated),
+            icon: const Icon(Icons.account_circle),
+            tooltip: 'My Profile',
+            onPressed: () => context.push('/sys_config/profile'),
           ),
           IconButton(
             icon: const Icon(Icons.emergency, color: Colors.red),
-            onPressed: () => _showPanicDialog(context, ref),
             tooltip: 'Panic Lock',
+            onPressed: () => _showPanicDialog(context, ref),
           ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            onSelected: (value) {
+              switch (value) {
+                case 'refresh':
+                  ref.read(chatSessionsProvider.notifier).refresh();
+                  break;
+                case 'friends':
+                  context.push('/sys_config/friends');
+                  break;
+                case 'notifications':
+                  context.push('/sys_config/notifications');
+                  break;
+                case 'settings':
+                  _showSecuritySettings(context, ref);
+                  break;
+                case 'info':
+                  _showSessionInfo(context, isAuthenticated);
+                  break;
+                case 'logout':
+                  _handleLogout();
+                  break;
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'refresh',
+                child: Row(
+                  children: [
+                    Icon(Icons.refresh, size: 20),
+                    SizedBox(width: 12),
+                    Text('Refresh List'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'friends',
+                child: Row(
+                  children: [
+                    Icon(Icons.people, size: 20),
+                    SizedBox(width: 12),
+                    Text('Friends'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'notifications',
+                child: Row(
+                  children: [
+                    Icon(Icons.notifications, size: 20),
+                    SizedBox(width: 12),
+                    Text('Notifications'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'settings',
+                child: Row(
+                  children: [
+                    Icon(Icons.settings, size: 20),
+                    SizedBox(width: 12),
+                    Text('Security Settings'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'info',
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, size: 20),
+                    SizedBox(width: 12),
+                    Text('Session Info'),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem(
+                value: 'logout',
+                child: Row(
+                  children: [
+                    Icon(Icons.logout, size: 20, color: Colors.redAccent),
+                    SizedBox(width: 12),
+                    Text('Logout', style: TextStyle(color: Colors.redAccent)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+
         ],
       ),
       body: Column(
         children: [
-          _buildSecurityBanner(isDark, isAuthenticated),
-          if (isAuthenticated)
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: TextField(
-                controller: _searchController,
-                decoration: InputDecoration(
-                  hintText: 'Search users...',
-                  prefixIcon: const Icon(Icons.search),
-                  suffixIcon: _searchController.text.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.clear),
-                          onPressed: () {
-                            _searchController.clear();
-                            _searchUsers('');
-                          },
-                        )
-                      : null,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                onChanged: _searchUsers,
-              ),
-            ),
+          _buildDiscoverySection(),
           Expanded(
-            child: _searchResults.isNotEmpty || _isSearching
-                ? _buildSearchResults(isDark)
-                : _buildChatList(context, isDark, sessions),
-          ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => isAuthenticated
-            ? null
-            : _showNewChatDialog(context, ref),
-        icon: const Icon(Icons.add),
-        label: Text(isAuthenticated ? 'Search above' : 'New Chat'),
-        backgroundColor:
-            isDark ? AppTheme.primaryDark : AppTheme.primaryLight,
-      ),
-    );
-  }
-
-  Widget _buildSecurityBanner(bool isDark, bool isAuthenticated) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            isAuthenticated
-                ? Colors.green.shade700
-                : Colors.blue.shade700,
-            isAuthenticated
-                ? Colors.green.shade500
-                : Colors.blue.shade500,
-          ],
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(isAuthenticated ? Icons.cloud_done : Icons.lock,
-              color: Colors.white),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  isAuthenticated ? 'Cloud Sync Enabled' : 'Local Mode',
-                  style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14),
-                ),
-                Text(
-                  isAuthenticated
-                      ? 'Messages sync across devices'
-                      : 'Messages stored locally only',
-                  style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.9),
-                      fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-          if (isAuthenticated)
-            IconButton(
-              icon: const Icon(Icons.logout, color: Colors.white),
-              onPressed: _handleLogout,
-              tooltip: 'Sign Out',
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSearchResults(bool isDark) {
-    if (_isSearching) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    return ListView.builder(
-      itemCount: _searchResults.length,
-      itemBuilder: (context, index) {
-        final user = _searchResults[index];
-        final displayName = user['display_name'] ?? 'Unknown';
-        final username = user['username'] ?? '';
-        final isOnline = user['is_online'] ?? false;
-        return ListTile(
-          leading: Stack(
-            children: [
-              CircleAvatar(
-                backgroundImage: user['avatar_url'] != null
-                    ? NetworkImage(user['avatar_url'])
-                    : null,
-                backgroundColor:
-                    isDark ? AppTheme.primaryDark : AppTheme.primaryLight,
-                child: user['avatar_url'] == null
-                    ? Text(displayName[0].toUpperCase(),
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold))
-                    : null,
-              ),
-              if (isOnline)
-                Positioned(
-                  right: 0,
-                  bottom: 0,
-                  child: Container(
-                    width: 12,
-                    height: 12,
-                    decoration: BoxDecoration(
-                      color: Colors.green,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 2),
+            child: RefreshIndicator(
+              onRefresh: () async {
+                await ref.read(chatSessionsProvider.notifier).refresh();
+              },
+              child: sessions.isEmpty
+                  ? _buildEmptyState(isDark)
+                  : ListView.builder(
+                      itemCount: sessions.length,
+                      itemBuilder: (context, index) {
+                        return _buildChatListItem(sessions[index], isDark);
+                      },
                     ),
-                  ),
-                ),
-            ],
+            ),
           ),
-          title: Text(displayName),
-          subtitle: Text('@$username'),
-          trailing: const Icon(Icons.chat_bubble_outline),
-          onTap: () => _startChat(user['id'], displayName),
-        );
-      },
+        ],
+      ),
     );
   }
 
-  Widget _buildChatList(BuildContext context, bool isDark,
-      List<dynamic> sessions) {
-    if (sessions.isEmpty) {
-      return Center(
+
+
+
+
+  Widget _buildEmptyState(bool isDark) {
+    return Center(
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -437,112 +335,105 @@ class _ChatListPageState extends ConsumerState<ChatListPage> {
             ),
           ],
         ),
-      );
-    }
-    return RefreshIndicator(
-      onRefresh: () async =>
-          ref.read(chatSessionsProvider.notifier).refresh(),
-      child: ListView.builder(
-        itemCount: sessions.length,
-        itemBuilder: (context, index) {
-          final session = sessions[index];
-          return ListTile(
-            leading: Stack(
-              children: [
-                CircleAvatar(
-                  backgroundColor:
-                      isDark ? AppTheme.primaryDark : AppTheme.primaryLight,
-                  child: Text(
-                    session.peerName.isNotEmpty
-                        ? session.peerName[0].toUpperCase()
-                        : '?',
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold),
-                  ),
-                ),
-                if (session.isPinned)
-                  Positioned(
-                    right: 0,
-                    top: 0,
-                    child: Container(
-                      padding: const EdgeInsets.all(2),
-                      decoration: BoxDecoration(
-                        color: isDark
-                            ? AppTheme.primaryDark
-                            : AppTheme.primaryLight,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.push_pin,
-                          size: 10, color: Colors.white),
-                    ),
-                  ),
-              ],
-            ),
-            title: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    session.peerName.isNotEmpty
-                        ? session.peerName
-                        : 'Unknown User',
-                    style:
-                        const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ),
-                if (session.isMuted)
-                  const Icon(Icons.notifications_off,
-                      size: 16, color: Colors.grey),
-              ],
-            ),
-            subtitle: Row(
-              children: [
-                const Icon(Icons.lock, size: 12, color: Colors.grey),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: Text(
-                    session.lastMessage?.content ?? 'No messages yet',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-            trailing: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                if (session.lastMessage != null)
-                  Text(
-                    _formatTime(session.lastMessage!.timestamp),
-                    style: const TextStyle(
-                        fontSize: 12, color: Colors.grey),
-                  ),
-                if (session.unreadCount > 0)
-                  Container(
-                    margin: const EdgeInsets.only(top: 4),
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: isDark
-                          ? AppTheme.primaryDark
-                          : AppTheme.primaryLight,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Text(
-                      '${session.unreadCount}',
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold),
-                    ),
-                  ),
-              ],
-            ),
-            onTap: () =>
-                context.push('/sys_config/chat/${session.id}'),
-          );
-        },
       ),
+    );
+  }
+
+  Widget _buildChatListItem(dynamic session, bool isDark) {
+    return ListTile(
+      leading: Stack(
+        children: [
+          CircleAvatar(
+            backgroundColor:
+                isDark ? AppTheme.primaryDark : AppTheme.primaryLight,
+            child: Text(
+              session.peerName.isNotEmpty
+                  ? session.peerName[0].toUpperCase()
+                  : '?',
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold),
+            ),
+          ),
+          if (session.isPinned)
+            Positioned(
+              right: 0,
+              top: 0,
+              child: Container(
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? AppTheme.primaryDark
+                      : AppTheme.primaryLight,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.push_pin,
+                    size: 10, color: Colors.white),
+              ),
+            ),
+        ],
+      ),
+      title: Row(
+        children: [
+          Expanded(
+            child: Text(
+              session.peerName.isNotEmpty
+                  ? session.peerName
+                  : 'Unknown User',
+              style:
+                  const TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+          if (session.isMuted)
+            const Icon(Icons.notifications_off,
+                size: 16, color: Colors.grey),
+        ],
+      ),
+      subtitle: Row(
+        children: [
+          const Icon(Icons.lock, size: 12, color: Colors.grey),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Text(
+              session.lastMessage?.content ?? 'No messages yet',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+      trailing: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (session.lastMessage != null)
+            Text(
+              _formatTime(session.lastMessage!.timestamp),
+              style: const TextStyle(
+                  fontSize: 12, color: Colors.grey),
+            ),
+          if (session.unreadCount > 0)
+            Container(
+              margin: const EdgeInsets.only(top: 4),
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? AppTheme.primaryDark
+                    : AppTheme.primaryLight,
+                shape: BoxShape.circle,
+              ),
+              child: Text(
+                '${session.unreadCount}',
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold),
+              ),
+            ),
+        ],
+      ),
+      onTap: () =>
+          context.push('/sys_config/chat/${session.id}'),
     );
   }
 
@@ -594,15 +485,15 @@ class _ChatListPageState extends ConsumerState<ChatListPage> {
                         await ref
                             .read(sessionProvider.notifier)
                             .enableBiometric(true);
-                        Navigator.pop(context);
-                        _showSecuritySettings(context, ref);
+                        if (context.mounted) Navigator.pop(context);
+                        if (context.mounted) _showSecuritySettings(context, ref);
                       }
                     } else {
                       await ref
                           .read(sessionProvider.notifier)
                           .enableBiometric(false);
-                      Navigator.pop(context);
-                      _showSecuritySettings(context, ref);
+                      if (context.mounted) Navigator.pop(context);
+                      if (context.mounted) _showSecuritySettings(context, ref);
                     }
                   },
                 );
@@ -688,46 +579,72 @@ class _ChatListPageState extends ConsumerState<ChatListPage> {
     );
   }
 
-  void _showNewChatDialog(BuildContext context, WidgetRef ref) {
-    final controller = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Start New Chat'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            labelText: 'Contact Name',
-            hintText: 'Enter name or ID',
-            prefixIcon: Icon(Icons.person),
+  Widget _buildDiscoverySection() {
+    final roomMembers = ref.watch(roomMembersProvider);
+
+    return roomMembers.when(
+      data: (members) {
+        if (members.isEmpty) return const SizedBox.shrink();
+
+        return Container(
+          height: 120,
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: Text(
+                  'People in my Room',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.blue),
+                ),
+              ),
+              Expanded(
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  itemCount: members.length,
+                  itemBuilder: (context, index) {
+                    final member = members[index];
+                    final name = member['display_name'] ?? member['username'] ?? 'User';
+                    
+                    return GestureDetector(
+                      onTap: () => _startChat(member['id'], name),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Column(
+                          children: [
+                            CircleAvatar(
+                              radius: 28,
+                              backgroundColor: Colors.blue.withValues(alpha:0.1),
+                              child: Text(
+                                name[0].toUpperCase(),
+                                style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            SizedBox(
+                              width: 60,
+                              child: Text(
+                                name,
+                                style: const TextStyle(fontSize: 10),
+                                textAlign: TextAlign.center,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
           ),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
-          TextButton(
-            onPressed: () async {
-              if (controller.text.isNotEmpty) {
-                await ref
-                    .read(chatSessionsProvider.notifier)
-                    .createSession(
-                        'peer_${controller.text}', controller.text);
-                if (context.mounted) {
-                  Navigator.pop(context);
-                  final sessions = ref.read(chatSessionsProvider);
-                  final newSession = sessions.firstWhere(
-                    (s) => s.peerName == controller.text,
-                    orElse: () => sessions.first,
-                  );
-                  context.push('/sys_config/chat/${newSession.id}');
-                }
-              }
-            },
-            child: const Text('Start'),
-          ),
-        ],
-      ),
+        );
+      },
+      loading: () => const LinearProgressIndicator(),
+      error: (_, __) => const SizedBox.shrink(),
     );
   }
 }

@@ -3,15 +3,17 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/security/session_manager.dart';
 import '../../domain/entities/message.dart';
+import '../../domain/entities/chat_session.dart';
 import '../providers/chat_provider.dart';
-import '../providers/auth_provider.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/chat_input_bar.dart';
-import '../../../../shared/services/auth_service.dart';
+import '../../../../core/di/injection_container.dart';
 
 class ChatRoomPage extends ConsumerStatefulWidget {
   final String chatId;
@@ -22,8 +24,7 @@ class ChatRoomPage extends ConsumerStatefulWidget {
 }
 
 class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
-  String? _peerName;
-  bool _isPeerOnline = false;
+
   final _messageController = TextEditingController();
   final _scrollController = ScrollController();
   bool _showScrollButton = false;
@@ -38,30 +39,12 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
     _scrollController.addListener(_scrollListener);
     Future.delayed(Duration.zero, () {
       ref.read(chatSessionsProvider.notifier).markAsRead(widget.chatId);
-      _loadPeerInfo();
+      _listenForActiveCalls();
     });
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
   }
 
-  Future<void> _loadPeerInfo() async {
-    final sessions = ref.read(chatSessionsProvider);
-    final session = sessions.firstWhere((s) => s.id == widget.chatId);
-    setState(() => _peerName = session.peerName);
 
-    final isAuthenticated = ref.read(isAuthenticatedProvider);
-    if (isAuthenticated) {
-      try {
-        final userProfile = await ref
-            .read(authServiceProvider)
-            .getUserProfile(session.peerId);
-        if (mounted) {
-          setState(() => _isPeerOnline = userProfile?['is_online'] ?? false);
-        }
-      } catch (e) {
-        debugPrint('Error loading peer info: $e');
-      }
-    }
-  }
 
   void _scrollListener() {
     if (_scrollController.hasClients) {
@@ -87,19 +70,105 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
   void dispose() {
     _messageController.dispose();
     _scrollController.dispose();
+    Supabase.instance.client.channel('chat_room_calls_${widget.chatId}').unsubscribe();
     super.dispose();
+  }
+
+  Future<void> _listenForActiveCalls() async {
+    try {
+      final supabase = Supabase.instance.client;
+      final myDeviceId = ref.read(deviceIdProvider);
+      
+      // Check existing ringing call
+      final activeCalls = await supabase
+          .from('calls')
+          .select()
+          .eq('chat_id', widget.chatId)
+          .eq('status', 'ringing')
+          .neq('caller_id', myDeviceId)
+          .order('created_at', ascending: false)
+          .limit(1);
+
+      if (activeCalls.isNotEmpty && mounted) {
+        final call = activeCalls.first;
+        _showIncomingCallDialog(call);
+      }
+
+      // Listen for new ringing calls
+      supabase
+          .channel('chat_room_calls_${widget.chatId}')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.insert,
+            schema: 'public',
+            table: 'calls',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'chat_id',
+              value: widget.chatId,
+            ),
+            callback: (payload) {
+              final call = payload.newRecord;
+              if (call['status'] == 'ringing' && call['caller_id'] != myDeviceId && mounted) {
+                _showIncomingCallDialog(call);
+              }
+            },
+          )
+          .subscribe();
+    } catch (e) {
+      debugPrint('Error checking active calls: $e');
+    }
+  }
+
+  void _showIncomingCallDialog(Map<String, dynamic> call) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Incoming Call'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              call['call_type'] == 'video' ? Icons.videocam : Icons.call,
+              size: 48,
+              color: Colors.green,
+            ),
+            const SizedBox(height: 16),
+            Text('Getting ${call['call_type']} call from another user'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              // Reject call
+              ref.read(callSignalingServiceProvider).rejectCall(call['id']);
+            },
+            child: const Text('Decline', style: TextStyle(color: Colors.red)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              // Navigate to CallScreen
+              context.push(
+                '/sys_config/call/${call['call_type']}/${widget.chatId}?callId=${call['id']}',
+                extra: call['sdp_offer'],
+              );
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+            child: const Text('Join', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final chatState = ref.watch(chatProvider(widget.chatId));
-    final currentUserId = ref.watch(currentUserIdProvider);
-    final sessions = ref.watch(chatSessionsProvider);
-    final session = sessions.firstWhere(
-      (s) => s.id == widget.chatId,
-      orElse: () => throw Exception('Chat session not found'),
-    );
+    final currentDeviceId = ref.watch(deviceIdProvider);
+
 
     return Scaffold(
       appBar: AppBar(
@@ -108,92 +177,58 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
           onPressed: () => context.pop(),
         ),
         title: Row(
-          children: [
-            Stack(
-              children: [
-                CircleAvatar(
-                  radius: 18,
-                  backgroundColor:
-                      isDark ? AppTheme.primaryDark : AppTheme.primaryLight,
-                  child: Text(
-                    _peerName != null && _peerName!.isNotEmpty
-                        ? _peerName![0].toUpperCase()
-                        : '?',
-                    style: const TextStyle(color: Colors.white),
-                  ),
-                ),
-                if (_isPeerOnline)
-                  Positioned(
-                    right: 0,
-                    bottom: 0,
-                    child: Container(
-                      width: 12,
-                      height: 12,
-                      decoration: BoxDecoration(
-                        color: Colors.green,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: Theme.of(context).scaffoldBackgroundColor,
-                          width: 2,
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _peerName ?? 'Chat',
-                    style: const TextStyle(fontSize: 16),
-                  ),
-                  Text(
-                    chatState.isTyping
-                        ? 'typing...'
-                        : _isPeerOnline
-                            ? 'online'
-                            : 'offline',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontStyle: chatState.isTyping
-                          ? FontStyle.italic
-                          : FontStyle.normal,
-                      color:
-                          chatState.isTyping ? Colors.blue : Colors.grey,
-                    ),
-                  ),
-                ],
+            children: [
+              CircleAvatar(
+                radius: 18,
+                backgroundColor:
+                    isDark ? AppTheme.primaryDark : AppTheme.primaryLight,
+                child: const Icon(Icons.lock, color: Colors.white, size: 20),
               ),
-            ),
-          ],
-        ),
-        // ── ✅ FIXED: Call buttons added here ──
-        actions: [
-          if (session.isPinned)
-            const Padding(
-              padding: EdgeInsets.only(right: 4),
-              child: Icon(Icons.push_pin, size: 18),
-            ),
-          if (session.isMuted)
-            const Padding(
-              padding: EdgeInsets.only(right: 4),
-              child: Icon(Icons.notifications_off, size: 18),
-            ),
-          // Audio Call button
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Secure Room',
+                      style: TextStyle(fontSize: 16),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      'Encrypted Channel',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          // ── ✅ FIXED: Call buttons moved INSIDE AppBar ──
+          actions: [
+          // Audio Call
           IconButton(
             icon: const Icon(Icons.call),
-            tooltip: 'Audio Call',
             onPressed: () => _startCall(isVideo: false),
           ),
-          // Video Call button
+          // Video Call
           IconButton(
             icon: const Icon(Icons.videocam),
-            tooltip: 'Video Call',
             onPressed: () => _startCall(isVideo: true),
           ),
+          // Close Session / Logout
+          IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: 'Close Session',
+            onPressed: () => _handleLogout(),
+          ),
+          // Panic Lock
+          IconButton(
+            icon: const Icon(Icons.emergency, color: Colors.red),
+            tooltip: 'Panic Lock',
+            onPressed: () => _showPanicDialog(context, ref),
+          ),
+          // More options
           IconButton(
             icon: const Icon(Icons.more_vert),
             onPressed: _showChatOptions,
@@ -287,7 +322,7 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
                                   final message =
                                       chatState.messages[index];
                                   final isMe =
-                                      message.senderId == currentUserId;
+                                    (message.senderDeviceId ?? message.senderId) == currentDeviceId;
                                   bool showDateSeparator = index == 0 ||
                                       !_isSameDay(
                                         message.timestamp,
@@ -401,13 +436,20 @@ void _startCall({required bool isVideo}) {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
     final currentUserId = ref.read(currentUserIdProvider);
+    final currentDeviceId = ref.read(deviceIdProvider);
     if (currentUserId == null) return;
     final sessions = ref.read(chatSessionsProvider);
-    final session =
-        sessions.firstWhere((s) => s.id == widget.chatId);
+    final session = sessions.firstWhere((s) => s.id == widget.chatId,
+        orElse: () => ChatSession(
+              id: widget.chatId,
+              peerId: '',
+              peerName: 'Secure Room',
+              createdAt: DateTime.now(),
+            ));
     ref.read(chatProvider(widget.chatId).notifier).sendMessage(
           content: text,
           senderId: currentUserId,
+          senderDeviceId: currentDeviceId,
           receiverId: session.peerId,
           type: MessageType.text,
         );
@@ -477,14 +519,21 @@ void _startCall({required bool isVideo}) {
       final image = await picker.pickImage(source: source);
       if (image != null) {
         final currentUserId = ref.read(currentUserIdProvider);
+        final currentDeviceId = ref.read(deviceIdProvider);
         if (currentUserId == null) return;
         final sessions = ref.read(chatSessionsProvider);
-        final session =
-            sessions.firstWhere((s) => s.id == widget.chatId);
+        final session = sessions.firstWhere((s) => s.id == widget.chatId,
+            orElse: () => ChatSession(
+                  id: widget.chatId,
+                  peerId: '',
+                  peerName: 'Secure Room',
+                  createdAt: DateTime.now(),
+                ));
         final file = File(image.path);
         ref.read(chatProvider(widget.chatId).notifier).sendMessage(
               content: '[Image]',
               senderId: currentUserId,
+              senderDeviceId: currentDeviceId,
               receiverId: session.peerId,
               type: MessageType.image,
               filePath: image.path,
@@ -506,13 +555,20 @@ void _startCall({required bool isVideo}) {
     if (result != null && result.files.isNotEmpty) {
       final file = result.files.first;
       final currentUserId = ref.read(currentUserIdProvider);
+      final currentDeviceId = ref.read(deviceIdProvider);
       if (currentUserId == null) return;
       final sessions = ref.read(chatSessionsProvider);
-      final session =
-          sessions.firstWhere((s) => s.id == widget.chatId);
+      final session = sessions.firstWhere((s) => s.id == widget.chatId,
+          orElse: () => ChatSession(
+                id: widget.chatId,
+                peerId: '',
+                peerName: 'Secure Room',
+                createdAt: DateTime.now(),
+              ));
       ref.read(chatProvider(widget.chatId).notifier).sendMessage(
             content: '[File: ${file.name}]',
-            senderId: currentUserId,
+          senderId: currentUserId,
+          senderDeviceId: currentDeviceId,
             receiverId: session.peerId,
             type: MessageType.file,
             filePath: file.path,
@@ -573,13 +629,20 @@ void _startCall({required bool isVideo}) {
       return;
     }
     final currentUserId = ref.read(currentUserIdProvider);
+    final currentDeviceId = ref.read(deviceIdProvider);
     if (currentUserId == null) return;
     final sessions = ref.read(chatSessionsProvider);
-    final session =
-        sessions.firstWhere((s) => s.id == widget.chatId);
+    final session = sessions.firstWhere((s) => s.id == widget.chatId,
+        orElse: () => ChatSession(
+              id: widget.chatId,
+              peerId: '',
+              peerName: 'Secure Room',
+              createdAt: DateTime.now(),
+            ));
     ref.read(chatProvider(widget.chatId).notifier).sendMessage(
           content: text,
           senderId: currentUserId,
+          senderDeviceId: currentDeviceId,
           receiverId: session.peerId,
           type: MessageType.text,
           isSelfDestruct: true,
@@ -619,16 +682,78 @@ void _startCall({required bool isVideo}) {
     ref.read(chatProvider(widget.chatId).notifier).sendMessage(
           content: message.content,
           senderId: message.senderId,
+          senderDeviceId: message.senderDeviceId ?? ref.read(deviceIdProvider),
           receiverId: message.receiverId,
           type: message.type,
         );
   }
 
+  Future<void> _handleLogout() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Close Session'),
+        content: const Text('Are you sure you want to close this secure session?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Close')),
+        ],
+      ),
+    );
+    if (confirm == true && mounted) {
+      await ref.read(sessionProvider.notifier).lock();
+      if (mounted) context.go('/');
+    }
+  }
+
+  void _showPanicDialog(BuildContext context, WidgetRef ref) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning, color: Colors.red),
+            SizedBox(width: 8),
+            Text('Panic Lock'),
+          ],
+        ),
+        content: const Text(
+          'This will immediately lock the secure chat and clear all session data. Continue?',
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel')),
+          TextButton(
+            onPressed: () async {
+              await ref.read(sessionProvider.notifier).panic();
+              if (context.mounted) {
+                Navigator.pop(context);
+                context.go('/');
+              }
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Panic Lock'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showChatOptions() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final sessions = ref.read(chatSessionsProvider);
-    final session =
-        sessions.firstWhere((s) => s.id == widget.chatId);
+    final session = sessions.firstWhere((s) => s.id == widget.chatId,
+        orElse: () => ChatSession(
+              id: widget.chatId,
+              peerId: '',
+              peerName: 'Secure Room',
+              createdAt: DateTime.now(),
+            ));
     showModalBottomSheet(
       context: context,
       backgroundColor: isDark ? Colors.grey[900] : Colors.white,

@@ -4,38 +4,37 @@ import 'package:go_router/go_router.dart';
 import '../../features/game/presentation/pages/home_page.dart';
 import '../../features/game/presentation/pages/settings_page.dart';
 import '../../features/game/presentation/pages/profile_page.dart';
-import '../../features/game/presentation/pages/battle_page.dart';
-import '../../features/game/presentation/pages/explore_page.dart';
+import '../../features/stealth_chat/presentation/pages/stealth_registration_page.dart';
 import '../../features/stealth_chat/presentation/pages/stealth_unlock_page.dart';
+import '../../features/stealth_chat/presentation/pages/stealth_main_scaffold.dart';
 import '../../features/stealth_chat/presentation/pages/chat_list_page.dart';
-import '../../features/stealth_chat/presentation/pages/chat_room_page.dart';
 import '../../features/stealth_chat/presentation/pages/friends_page.dart';
 import '../../features/stealth_chat/presentation/pages/notification_settings_page.dart';
 import '../../features/stealth_chat/presentation/pages/call_screen.dart';
 import '../../features/stealth_chat/presentation/pages/group_chat_page.dart';
-import '../../features/stealth_chat/presentation/pages/auth/login_page.dart';
-import '../../features/stealth_chat/presentation/pages/auth/register_page.dart';
-import '../../features/stealth_chat/presentation/providers/auth_provider.dart';
+import '../../features/game/presentation/pages/game_page.dart';
 import '../security/session_manager.dart';
 import '../../features/stealth_chat/presentation/pages/chat_profile_page.dart';
+import '../../core/di/injection_container.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
-  final isAuthenticated = ref.watch(isAuthenticatedProvider);
   return GoRouter(
     initialLocation: '/',
-    redirect: (context, state) {
+    redirect: (context, state) async {
       final isUnlocked =
           ref.read(sessionProvider).status == SessionStatus.unlocked;
       final path = state.matchedLocation;
       final isGoingToStealth = path.startsWith('/sys_config');
-      final isGoingToAuth = path == '/sys_config/login' ||
-          path == '/sys_config/register';
       final isGoingToUnlock = path == '/sys_config/unlock';
+      final isGoingToRegister = path == '/sys_config/register';
 
       if (isGoingToStealth) {
-        if (isGoingToAuth) return null;
-        if (!isAuthenticated) return '/sys_config/login';
-        if (!isUnlocked && !isGoingToUnlock) return '/sys_config/unlock';
+        final prefs = ref.read(preferencesServiceProvider);
+        await prefs.isStealthRegistered();
+
+        if (!isUnlocked && !isGoingToUnlock && !isGoingToRegister) {
+          return '/sys_config/unlock';
+        }
       }
       return null;
     },
@@ -44,23 +43,22 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/', builder: (c, s) => const HomePage()),
       GoRoute(path: '/settings', builder: (c, s) => const SettingsPage()),
       GoRoute(path: '/profile', builder: (c, s) => const ProfilePage()),
-      GoRoute(path: '/battle', builder: (c, s) => const BattlePage()),
-      GoRoute(path: '/explore', builder: (c, s) => const ExplorePage()),
+      GoRoute(
+        path: '/game/:difficulty',
+        builder: (c, s) => GamePage(
+          difficulty: s.pathParameters['difficulty'] ?? 'easy',
+        ),
+      ),
 
-      // ── Auth Routes ──
-      GoRoute(
-          path: '/sys_config/login',
-          builder: (c, s) => const LoginPage()),
-      GoRoute(
-          path: '/sys_config/register',
-          builder: (c, s) => const RegisterPage()),
       GoRoute(
           path: '/sys_config/profile',
           builder: (context, state) => const ChatProfilePage(),
         ),
 
-
       // ── Stealth Chat Routes ──
+      GoRoute(
+          path: '/sys_config/register',
+          builder: (c, s) => const StealthRegistrationPage()),
       GoRoute(
           path: '/sys_config/unlock',
           builder: (c, s) => const StealthUnlockPage()),
@@ -70,7 +68,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/sys_config/chat/:id',
         builder: (c, s) =>
-            ChatRoomPage(chatId: s.pathParameters['id'] ?? ''),
+            StealthMainScaffold(roomId: s.pathParameters['id'] ?? ''),
       ),
 
       // ── Friends ──
@@ -89,6 +87,8 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (c, s) => CallScreen(
           chatId: s.pathParameters['id'] ?? '',
           isVideo: false,
+          incomingCallId: s.uri.queryParameters['callId'],
+          incomingSdpOffer: s.extra as String?,
         ),
       ),
 
@@ -98,6 +98,8 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (c, s) => CallScreen(
           chatId: s.pathParameters['id'] ?? '',
           isVideo: true,
+          incomingCallId: s.uri.queryParameters['callId'],
+          incomingSdpOffer: s.extra as String?,
         ),
       ),
 

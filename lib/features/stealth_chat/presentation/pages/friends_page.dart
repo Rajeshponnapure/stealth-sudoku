@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/services/auth_service.dart';
+import '../../../../core/security/session_manager.dart';
 import '../providers/chat_provider.dart';
 
 class FriendsPage extends ConsumerStatefulWidget {
@@ -71,6 +72,16 @@ class _FriendsPageState extends ConsumerState<FriendsPage>
     return Scaffold(
       appBar: AppBar(
         title: const Text('Friends'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.lock_outline),
+            onPressed: () {
+              ref.read(sessionProvider.notifier).lock();
+              context.go('/');
+            },
+            tooltip: 'Panic Lock',
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           tabs: const [

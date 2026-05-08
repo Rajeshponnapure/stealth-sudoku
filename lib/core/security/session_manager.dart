@@ -61,27 +61,21 @@ class SessionManager {
     final sessionKey = await _secureStorage.read(StorageKeys.sessionKey);
     if (sessionKey == null) return false;
 
-    // Check if session is expired
-    final unlockTime = await _secureStorage.read('_unlock_time');
-    if (unlockTime != null) {
-      final time = DateTime.parse(unlockTime);
-      final now = DateTime.now();
-      final difference = now.difference(time);
-
-      if (difference.inMinutes > AppConstants.sessionAutoLockMinutes) {
-        await lockSession();
-        return false;
-      }
-    }
-
+    // Auto-lock disabled as per user request: Session remains active until explicit logout.
     return true;
   }
 
   // Unlock stealth session
-  Future<bool> unlockSession(String credentials) async {
+  Future<bool> unlockSession(String credentials, {bool force = false}) async {
     try {
-      // Verify credentials (in real app, check against stored hash)
-      final storedHash = await _secureStorage.read(StorageKeys.userCredentials);
+      if (force) {
+        // Override credentials
+        final salt = _cryptoService.generateSalt();
+        final hash = await _cryptoService.hashPassword(credentials, salt);
+        await _secureStorage.write(StorageKeys.userCredentials, '$salt:$hash');
+      } else {
+        // Verify credentials (in real app, check against stored hash)
+        final storedHash = await _secureStorage.read(StorageKeys.userCredentials);
 
       if (storedHash == null) {
         // First time setup - create credentials
@@ -99,6 +93,7 @@ class SessionManager {
           return false; // Invalid credentials
         }
       }
+      } // <-- Added closing brace for the main else block
 
       // Generate session key
       final sessionKey = await _cryptoService.generateKey();
@@ -170,11 +165,9 @@ class SessionManager {
 
   // Start auto-lock timer
   void _startSessionTimer() {
+    // Disabled as per user request: Session won't auto-log out.
+    // User must explicitly logout or use Panic Lock.
     _sessionTimer?.cancel();
-    _sessionTimer = Timer(
-      Duration(minutes: AppConstants.sessionAutoLockMinutes),
-      () => lockSession(),
-    );
   }
 
   // Change credentials
@@ -241,8 +234,8 @@ class SessionNotifier extends StateNotifier<SessionState> {
     );
   }
 
-  Future<bool> unlock(String credentials) async {
-    final success = await _sessionManager.unlockSession(credentials);
+  Future<bool> unlock(String credentials, {bool force = false}) async {
+    final success = await _sessionManager.unlockSession(credentials, force: force);
     if (success) {
       state = state.copyWith(
         status: SessionStatus.unlocked,
