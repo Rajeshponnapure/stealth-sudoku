@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../constants/app_constants.dart';
 import 'crypto_service.dart';
@@ -47,6 +48,7 @@ class SessionManager {
   final SecureStorageService _secureStorage;
   final CryptoService _cryptoService;
   final BiometricService _biometricService;
+  final FlutterSecureStorage _flutterSecureStorage;
   Timer? _sessionTimer;
   static const String _biometricKey = 'biometric_enabled';
   static const String _savedPinKey = '_saved_pin';
@@ -55,6 +57,7 @@ class SessionManager {
     this._secureStorage,
     this._cryptoService,
     this._biometricService,
+    this._flutterSecureStorage,
   );
 
   // Check if stealth mode is unlocked
@@ -98,8 +101,8 @@ class SessionManager {
       }
       } // <-- Added closing brace for the main else block
 
-      // Save PIN securely for biometric re-auth
-      await _secureStorage.write(_savedPinKey, credentials);
+      // Save PIN in encrypted storage for biometric re-auth
+      await _flutterSecureStorage.write(key: _savedPinKey, value: credentials);
 
       // Generate session key
       final sessionKey = await _cryptoService.generateKey();
@@ -188,7 +191,7 @@ class SessionManager {
     await _secureStorage.write(StorageKeys.userCredentials, '$salt:$hash');
 
     // Update saved PIN so biometric re-auth uses the new credentials
-    await _secureStorage.write(_savedPinKey, newCredentials);
+    await _flutterSecureStorage.write(key: _savedPinKey, value: newCredentials);
 
     return true;
   }
@@ -211,7 +214,7 @@ class SessionManager {
 
   // Retrieve stored PIN for vault re-auth after biometric unlock
   Future<String?> getSavedPin() async {
-    return await _secureStorage.read(_savedPinKey);
+    return await _flutterSecureStorage.read(key: _savedPinKey);
   }
 
   void dispose() {
@@ -226,6 +229,7 @@ final sessionProvider = StateNotifierProvider<SessionNotifier, SessionState>(
       ref.watch(secureStorageServiceProvider),
       ref.watch(cryptoServiceProvider),
       ref.watch(biometricServiceProvider),
+      ref.watch(flutterSecureStorageProvider),
     );
     return SessionNotifier(sessionManager);
   },

@@ -43,6 +43,7 @@ final sessionManagerProvider = Provider<SessionManager>((ref) {
     ref.watch(secureStorageServiceProvider),
     ref.watch(cryptoServiceProvider),
     ref.watch(biometricServiceProvider),
+    ref.watch(flutterSecureStorageProvider),
   );
 });
 

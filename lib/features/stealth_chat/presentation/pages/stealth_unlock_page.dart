@@ -382,6 +382,7 @@ class _StealthUnlockPageState extends ConsumerState<StealthUnlockPage> {
             final savedPin = await ref.read(sessionProvider.notifier).getSavedPin();
 
             if (savedUsername == null || roomId == null || savedPin == null) {
+              await ref.read(sessionProvider.notifier).lock();
               if (!mounted) return;
               setState(() {
                 _errorMessage = 'Saved credentials not found. Please unlock with PIN first.';
@@ -393,6 +394,7 @@ class _StealthUnlockPageState extends ConsumerState<StealthUnlockPage> {
             await authService.signInToVault(savedUsername, savedPin, roomId, allowRegistration: false);
           } catch (e) {
             debugPrint('🔐 Biometric vault login failed: $e');
+            await ref.read(sessionProvider.notifier).lock();
             if (!mounted) return;
             setState(() {
               _errorMessage = 'Vault login failed. Please unlock with PIN.';
