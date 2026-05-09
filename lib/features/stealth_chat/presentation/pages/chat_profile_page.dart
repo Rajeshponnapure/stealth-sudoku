@@ -63,11 +63,14 @@ class _ChatProfilePageState extends ConsumerState<ChatProfilePage>
   Future<void> _saveProfile() async {
     try {
       final authService = ref.read(authServiceProvider);
-      // ✅ Only pass displayName — username not in updateProfile signature
+      final userId = authService.currentUserId;
+      if (userId == null) throw Exception('User not authenticated');
+
       await authService.updateProfile(
+        userId: userId,
         displayName: _displayNameController.text.trim(),
       );
-      setState(() => _isEditing = false);
+      if (mounted) setState(() => _isEditing = false);
       await _loadProfile();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

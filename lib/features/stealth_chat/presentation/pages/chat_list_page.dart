@@ -119,7 +119,12 @@ class _ChatListPageState extends ConsumerState<ChatListPage> {
   @override
   void dispose() {
     _searchController.dispose();
-    ref.read(callSignalingServiceProvider).stopListeningForCalls();
+    try {
+      // Safely attempt to stop listening - wrap in try-catch to avoid "ref after dispose"
+      ref.read(callSignalingServiceProvider).stopListeningForCalls();
+    } catch (e) {
+      debugPrint('⚠️ Error stopping call listener: $e');
+    }
     super.dispose();
   }
 
@@ -606,10 +611,11 @@ class _ChatListPageState extends ConsumerState<ChatListPage> {
                   itemCount: members.length,
                   itemBuilder: (context, index) {
                     final member = members[index];
-                    final name = member['display_name'] ?? member['username'] ?? 'User';
+                    final name = member['nickname'] ?? 'User';
+                    final userId = member['user_id'];
                     
                     return GestureDetector(
-                      onTap: () => _startChat(member['id'], name),
+                      onTap: () => _startChat(userId, name),
                       child: Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 8),
                         child: Column(

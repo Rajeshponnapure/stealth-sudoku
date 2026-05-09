@@ -1,66 +1,149 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
-interface NotificationPayload {
-  record: {
-    chat_id: string
-    sender_id: string
-    content: string
-  }
-}
+// Safe Environment Variable Retrieval
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || "";
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || Deno.env.get('SERVICE_ROLE_KEY') || "";
+const FIREBASE_SERVICE_ACCOUNT_RAW = Deno.env.get('FIREBASE_SERVICE_ACCOUNT') || "";
 
-serve(async (req) => {
+Deno.serve(async (req) => {
+  console.log("--- Stealth Push Worker Started ---");
+  
   try {
-    const payload: NotificationPayload = await req.json()
-    const { record } = payload
+    // 1. Validate Core Configuration
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      return new Response(JSON.stringify({ error: "Missing Supabase configuration secrets" }), { status: 500 });
+    }
 
-    // 1. Initialize Supabase Admin Client
-    const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    )
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    // 2. Find participants in this room (excluding the sender)
-    const { data: session } = await supabaseAdmin
-      .from('chat_sessions')
-      .select('participant_ids')
-      .eq('id', record.chat_id)
-      .single()
+    // 2. Poll for push requests
+    const { data: rows, error: pollError } = await supabase
+      .from('push_requests')
+      .select('*')
+      .eq('processed', false)
+      .limit(5);
 
-    if (!session) return new Response("No session found", { status: 404 })
+    if (pollError) {
+      return new Response(JSON.stringify({ error: `Database Error: ${pollError.message}` }), { status: 500 });
+    }
 
-    const recipients = session.participant_ids.filter((id: string) => id !== record.sender_id)
+    if (!rows || rows.length === 0) {
+      return new Response(JSON.stringify({ ok: true, message: "Queue empty", processed: 0 }), { status: 200 });
+    }
 
-    // 3. Get FCM tokens for recipients
-    // NOTE: This assumes you have a table called 'profiles' with an 'fcm_token' column
-    const { data: profiles } = await supabaseAdmin
-      .from('profiles')
-      .select('fcm_token')
-      .in('id', recipients)
+    // 3. Validate Firebase Configuration
+    if (!FIREBASE_SERVICE_ACCOUNT_RAW) {
+      return new Response(JSON.stringify({ error: "FIREBASE_SERVICE_ACCOUNT secret is missing" }), { status: 500 });
+    }
 
-    const tokens = profiles?.map(p => p.fcm_token).filter(t => t) ?? []
+    let serviceAccount;
+    try {
+      serviceAccount = JSON.parse(FIREBASE_SERVICE_ACCOUNT_RAW);
+    } catch (e) {
+      return new Response(JSON.stringify({ error: "Malformed FIREBASE_SERVICE_ACCOUNT JSON" }), { status: 500 });
+    }
 
-    if (tokens.length === 0) return new Response("No tokens found", { status: 200 })
+    // 4. Process Batch
+    const accessToken = await getAccessToken(serviceAccount);
+    let processedCount = 0;
 
-    // 4. Get Firebase Access Token
-    const serviceAccount = JSON.parse(Deno.env.get('FIREBASE_SERVICE_ACCOUNT')!)
-    const accessToken = await getAccessToken(serviceAccount)
+    for (const row of rows) {
+      const payload = row.payload;
+      const roomId = payload.room_id || payload.chat_id;
+      const senderDeviceId = payload.sender_device_id;
 
-    // 5. Send disguised notification to each token
-    const results = await Promise.all(tokens.map(token => 
-      sendFcmNotification(token, accessToken, serviceAccount.project_id)
-    ))
+      // 1. Get all user IDs in this room from profiles
+      const { data: memberProfiles, error: memberError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('room_id', roomId);
 
-    return new Response(JSON.stringify({ success: true, results }), {
-      headers: { "Content-Type": "application/json" },
-    })
+      if (memberError || !memberProfiles) continue;
+      const userIds = memberProfiles.map(p => p.id);
 
-  } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), { status: 500 })
+      // 2. Get tokens for these users from devices table (excluding the sender's device)
+      const { data: devices, error: deviceError } = await supabase
+        .from('devices')
+        .select('fcm_token')
+        .in('user_id', userIds)
+        .neq('device_id', senderDeviceId);
+
+      if (deviceError || !devices) continue;
+
+      const tokens = devices
+        .map(d => d.fcm_token)
+        .filter(t => t && t.length > 10);
+
+      // 3. Send to each token
+      for (const token of tokens) {
+        try {
+          const fcmResponse = await fetch(`https://fcm.googleapis.com/v1/projects/${serviceAccount.project_id}/messages:send`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify({
+              message: {
+                token: token,
+                // ✅ Notification block wakes up "Killed" apps
+                notification: {
+                  title: "🎮 New Level Update", // Disguised
+                  body: "You have a new challenge waiting!"
+                },
+                // ✅ Data block carries the real stealth content
+                data: {
+                  type: "stealth_message",
+                  chat_id: roomId,
+                  sender_id: payload.sender_id,
+                  content: payload.content,
+                },
+                // ✅ High priority forces instant delivery
+                android: {
+                  priority: "high",
+                  notification: {
+                    channel_id: "game_updates",
+                    priority: "high"
+                  }
+                },
+                apns: {
+                  payload: {
+                    aps: {
+                      contentAvailable: true,
+                      priority: 10
+                    }
+                  }
+                }
+              }
+            })
+          });
+          
+          const result = await fcmResponse.json();
+          console.log(`FCM Result for ${token.substring(0,10)}... :`, result);
+        } catch (fcmErr) {
+          console.error("FCM Send Error:", fcmErr);
+        }
+      }
+
+      // Mark as processed
+      await supabase.from('push_requests').update({ 
+        processed: true, 
+        processed_at: new Date().toISOString() 
+      }).eq('id', row.id);
+      
+      processedCount++;
+    }
+
+    return new Response(JSON.stringify({ ok: true, processed: processedCount }), { 
+      headers: { "Content-Type": "application/json" } 
+    });
+
+  } catch (e) {
+    return new Response(JSON.stringify({ error: `Internal Exception: ${e.message}` }), { status: 500 });
   }
-})
+});
 
-// Helper: Get Google OAuth2 Access Token
+// FCM Helper
 async function getAccessToken(serviceAccount: any): Promise<string> {
   const jwtHeader = b64(JSON.stringify({ alg: "RS256", typ: "JWT" }))
   const now = Math.floor(Date.now() / 1000)
@@ -91,30 +174,6 @@ async function getAccessToken(serviceAccount: any): Promise<string> {
   return data.access_token
 }
 
-async function sendFcmNotification(token: string, accessToken: string, projectId: string) {
-  return fetch(`https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({
-      message: {
-        token: token,
-        notification: {
-          title: "Sudoku Tournament Update!",
-          body: "A new tournament match is ready. Join now!"
-        },
-        data: {
-          type: "chat_message",
-          click_action: "FLUTTER_NOTIFICATION_CLICK"
-        }
-      }
-    })
-  })
-}
-
-// Utility functions for JWT signing
 function b64(str: string) { return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") }
 function b64ab(ab: ArrayBuffer) { return b64(String.fromCharCode(...new Uint8Array(ab))) }
 function str2ab(str: string) {

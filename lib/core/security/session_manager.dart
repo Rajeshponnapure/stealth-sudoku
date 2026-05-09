@@ -78,7 +78,9 @@ class SessionManager {
         final storedHash = await _secureStorage.read(StorageKeys.userCredentials);
 
       if (storedHash == null) {
-        // First time setup - create credentials
+        // Only allow first-time setup if force is true (registration)
+        if (!force) return false;
+        
         final salt = _cryptoService.generateSalt();
         final hash = await _cryptoService.hashPassword(credentials, salt);
         await _secureStorage.write(StorageKeys.userCredentials, '$salt:$hash');

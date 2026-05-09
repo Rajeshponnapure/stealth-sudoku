@@ -10,6 +10,7 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../core/security/session_manager.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/entities/chat_session.dart';
+import '../../../../shared/services/stealth_notification_service.dart';
 import '../providers/chat_provider.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/chat_input_bar.dart';
@@ -36,6 +37,9 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
   @override
   void initState() {
     super.initState();
+    // ✅ Tell notification service we are in this chat now
+    StealthNotificationService.activeChatId = widget.chatId;
+    
     _scrollController.addListener(_scrollListener);
     Future.delayed(Duration.zero, () {
       ref.read(chatSessionsProvider.notifier).markAsRead(widget.chatId);
@@ -68,6 +72,10 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
 
   @override
   void dispose() {
+    // ✅ Clear the active chat tracker when leaving the room
+    if (StealthNotificationService.activeChatId == widget.chatId) {
+      StealthNotificationService.activeChatId = null;
+    }
     _messageController.dispose();
     _scrollController.dispose();
     Supabase.instance.client.channel('chat_room_calls_${widget.chatId}').unsubscribe();
@@ -206,32 +214,58 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
           ),
           // ── ✅ FIXED: Call buttons moved INSIDE AppBar ──
           actions: [
-          // Audio Call
-          IconButton(
+            // Audio Call
+            IconButton(
             icon: const Icon(Icons.call),
             onPressed: () => _startCall(isVideo: false),
+            tooltip: 'Audio Call',
           ),
           // Video Call
           IconButton(
             icon: const Icon(Icons.videocam),
             onPressed: () => _startCall(isVideo: true),
+            tooltip: 'Video Call',
           ),
-          // Close Session / Logout
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Close Session',
-            onPressed: () => _handleLogout(),
-          ),
-          // Panic Lock
-          IconButton(
-            icon: const Icon(Icons.emergency, color: Colors.red),
-            tooltip: 'Panic Lock',
-            onPressed: () => _showPanicDialog(context, ref),
-          ),
-          // More options
-          IconButton(
+          // More Menu (Logout + Panic)
+          PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
-            onPressed: _showChatOptions,
+            onSelected: (value) {
+              if (value == 'logout') _handleLogout();
+              if (value == 'panic') _showPanicDialog(context, ref);
+              if (value == 'options') _showChatOptions();
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'logout',
+                child: Row(
+                  children: [
+                    Icon(Icons.logout, size: 20),
+                    SizedBox(width: 12),
+                    Text('Close Session'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'panic',
+                child: Row(
+                  children: [
+                    Icon(Icons.emergency, size: 20, color: Colors.red),
+                    SizedBox(width: 12),
+                    Text('Panic Lock', style: TextStyle(color: Colors.red)),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'options',
+                child: Row(
+                  children: [
+                    Icon(Icons.settings, size: 20),
+                    SizedBox(width: 12),
+                    Text('Chat Options'),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),

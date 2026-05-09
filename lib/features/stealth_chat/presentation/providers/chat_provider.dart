@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import '../../domain/entities/message.dart';
@@ -7,13 +9,72 @@ import '../../data/repositories/message_repository.dart';
 import '../../data/services/message_service.dart';
 import '../../../../core/di/injection_container.dart';
 import '../../../../shared/services/auth_service.dart';
-import 'package:flutter/foundation.dart'; // ✅ add this
+import '../../../../shared/services/supabase_service.dart';
 
 
-// Discovery Provider (Users in my room)
-final roomMembersProvider = FutureProvider<List<Map<String, dynamic>>>((ref) async {
-  final messageService = ref.watch(messageServiceProvider);
-  return await messageService.getUsersInMyRoom();
+
+// Discovery Provider (Devices in my room) - REAL-TIME
+final roomMembersProvider = StreamProvider<List<Map<String, dynamic>>>((ref) {
+  final authService = ref.watch(authServiceProvider);
+  final myDeviceId = ref.watch(deviceIdProvider);
+  final client = SupabaseService.client;
+  
+  if (!authService.isAuthenticated) return Stream.value([]);
+
+  final controller = StreamController<List<Map<String, dynamic>>>();
+
+  // Function to fetch and push latest members
+  Future<void> fetchMembers() async {
+    try {
+      // 1. Get my room_id from my own device record
+      final response = await client
+          .from('devices')
+          .select('room_id')
+          .eq('device_id', myDeviceId)
+          .maybeSingle();
+      
+      if (response == null || response['room_id'] == null) {
+        debugPrint('Discovery: Waiting for device registration...');
+        if (!controller.isClosed) controller.add([]); // ✅ Clear loading state
+        return;
+      }
+      
+      final roomId = response['room_id'];
+
+      // 2. Find everyone else in the same room (EXCLUDING this device)
+      final members = await client
+          .from('devices')
+          .select()
+          .eq('room_id', roomId)
+          .neq('device_id', myDeviceId);
+
+      if (!controller.isClosed) controller.add(List<Map<String, dynamic>>.from(members));
+    } catch (e) {
+      debugPrint('Error fetching room members: $e');
+      if (!controller.isClosed) controller.add([]); // ✅ Emit empty list on error to stop spinner
+    }
+  }
+
+  // 1. Initial fetch
+  fetchMembers();
+
+  // 2. Listen for changes in the devices table for THIS room
+  final subscription = client
+      .channel('room_discovery_devices')
+      .onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: 'devices',
+        callback: (payload) => fetchMembers(),
+      )
+      .subscribe();
+
+  ref.onDispose(() {
+    subscription.unsubscribe();
+    controller.close();
+  });
+
+  return controller.stream;
 });
 
 // Repository Provider (Local Storage)

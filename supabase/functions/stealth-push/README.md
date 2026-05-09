@@ -5,22 +5,23 @@ This function polls `push_requests` and sends FCM notifications to devices liste
 Quick deploy steps (run from project root):
 
 ```powershell
-# Install deps
-cd supabase/functions/stealth-push
-npm install
+# Create supabase/functions/stealth-push/.env with:
+# SERVICE_ROLE_KEY=<service_role_key>
+# SUPABASE_URL=https://<project-ref>.supabase.co
 
-# Set secrets (example)
-supabase secrets set SERVICE_ROLE_KEY="<service_role_key>" --project-ref <ref>
-supabase secrets set SUPABASE_URL="https://xyz.supabase.co" --project-ref <ref>
-supabase secrets set FCM_SERVER_KEY="<fcm_server_key>" --project-ref <ref>
+# Put your downloaded Firebase service-account JSON somewhere locally,
+# then run the deploy script from the repo root.
+.\supabase\deploy_stealth_push.ps1
+```
 
-# Deploy
-supabase functions deploy stealth-push --project-ref <ref>
+If you want to run the commands manually, prefix every Supabase command with `npx`:
 
-# Invoke (test)
-supabase functions invoke stealth-push --project-ref <ref>
+```powershell
+npx supabase secrets set --env-file .\supabase\functions\stealth-push\.env --project-ref <ref>
+npx supabase functions deploy stealth-push --project-ref <ref>
+npx supabase functions invoke stealth-push --project-ref <ref>
 ```
 
 Notes:
-- Prefer using a Firebase service account and the new FCM HTTP v1 flow for production; the `FCM_SERVER_KEY` legacy key works for testing.
-- The function currently polls `push_requests` and marks rows processed. You can adapt it to use realtime subscriptions or an HTTP trigger.
+- The function uses Firebase service-account JSON (`FIREBASE_SERVICE_ACCOUNT`) and FCM HTTP v1 by default.
+- The function still polls `push_requests` and marks rows processed. You can adapt it to use realtime subscriptions or an HTTP trigger later.

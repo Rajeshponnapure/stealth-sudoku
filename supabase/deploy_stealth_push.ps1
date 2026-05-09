@@ -1,33 +1,57 @@
 # Deploy Stealth Push Edge Function and set required secrets.
-# Usage: Run in PowerShell from project root. Replace placeholders before running.
+# Usage: Run in PowerShell from project root.
 
 Set-StrictMode -Version Latest
 
-if (-not (Get-Command supabase -ErrorAction SilentlyContinue)) {
-  Write-Error "supabase CLI is not installed or not on PATH. Install from https://supabase.com/docs/guides/cli"
+if (-not (Get-Command npx -ErrorAction SilentlyContinue)) {
+  Write-Error "npx is not installed or not on PATH. Install Node.js first."
   exit 1
 }
 
 $projectRef = Read-Host 'Enter Supabase project ref (or press Enter to skip)'
-if ([string]::IsNullOrWhiteSpace($projectRef)) { $projectArg = '' } else { $projectArg = "--project-ref $projectRef" }
+$projectRef = $projectRef.Trim()
+
+$firebaseJsonPath = Read-Host 'Path to downloaded Firebase service-account JSON file'
+$firebaseJsonPath = $firebaseJsonPath.Trim().Trim('"').Trim("'")
+
+if (-not (Test-Path $firebaseJsonPath)) {
+  Write-Error "Firebase JSON file not found: $firebaseJsonPath"
+  exit 1
+}
+
+$functionEnvPath = Join-Path $PSScriptRoot 'functions\stealth-push\.env'
+if (-not (Test-Path $functionEnvPath)) {
+  # Fallback to root .env if function .env is missing
+  $functionEnvPath = Join-Path $PSScriptRoot '..\.env'
+}
+
+$serviceAccountJson = Get-Content $firebaseJsonPath -Raw | ConvertFrom-Json | ConvertTo-Json -Compress -Depth 100
+$tempEnvPath = Join-Path $env:TEMP 'stealth-push-env.txt'
+
+# ✅ Ensure NO BOM and NO extra whitespace
+$envContent = Get-Content $functionEnvPath -Raw
+$finalEnv = "$($envContent.Trim())`nFIREBASE_SERVICE_ACCOUNT=$serviceAccountJson"
+[System.IO.File]::WriteAllText($tempEnvPath, $finalEnv)
 
 Write-Host 'Installing function dependencies...'
 Push-Location supabase/functions/stealth-push
 npm install
 Pop-Location
 
-Write-Host 'Set Supabase secrets (you will be prompted).'
-Write-Host 'Provide SERVICE_ROLE_KEY (service_role key)'
-supabase secrets set SERVICE_ROLE_KEY --project-ref $projectRef
-Write-Host 'Provide SUPABASE_URL'
-supabase secrets set SUPABASE_URL --project-ref $projectRef
-Write-Host 'Provide FCM_SERVER_KEY (legacy server key) or set FIREBASE_SERVICE_ACCOUNT JSON as needed'
-supabase secrets set FCM_SERVER_KEY --project-ref $projectRef
+Write-Host 'Setting Supabase secrets from env file...'
+if ($projectRef) {
+    npx supabase secrets set --env-file $tempEnvPath --project-ref $projectRef
+} else {
+    npx supabase secrets set --env-file $tempEnvPath
+}
+
+Remove-Item $tempEnvPath -ErrorAction SilentlyContinue
 
 Write-Host 'Deploying function...'
-supabase functions deploy stealth-push $projectArg
-
-Write-Host 'Invoke a test run (this does not send FCM until push_requests exist)'
-supabase functions invoke stealth-push $projectArg
+if ($projectRef) {
+    npx supabase functions deploy stealth-push --project-ref $projectRef
+} else {
+    npx supabase functions deploy stealth-push
+}
 
 Write-Host 'Done.'

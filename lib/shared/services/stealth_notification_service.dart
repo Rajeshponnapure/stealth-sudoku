@@ -3,12 +3,16 @@ import 'package:permission_handler/permission_handler.dart';
 import 'dart:math';
 import 'package:flutter/foundation.dart';  // for debugPrint
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 class StealthNotificationService {
   static final FlutterLocalNotificationsPlugin _notifications =
       FlutterLocalNotificationsPlugin();
 
   static bool _initialized = false;
+  
+  // ✅ Track which chat the user is currently looking at
+  static String? activeChatId;
 
   // Disguise templates - make it look like game notifications
   static final List<Map<String, String>> _disguiseTemplates = [
@@ -60,12 +64,26 @@ class StealthNotificationService {
 
   // Request notification permissions
   static Future<bool> requestPermissions() async {
-    if (await Permission.notification.isGranted) {
-      return true;
+    // 1. Request OS permission for showing notifications
+    if (!(await Permission.notification.isGranted)) {
+      await Permission.notification.request();
     }
 
-    final status = await Permission.notification.request();
-    return status.isGranted;
+    // 2. Request Firebase Messaging (Push) permission explicitly
+    try {
+      final messaging = FirebaseMessaging.instance;
+      final settings = await messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+        provisional: false,
+      );
+      debugPrint('FCM Permission status: ${settings.authorizationStatus}');
+      return settings.authorizationStatus == AuthorizationStatus.authorized;
+    } catch (e) {
+      debugPrint('FCM Permission request failed: $e');
+      return false;
+    }
   }
 
   // Show disguised notification (looks like game notification)
@@ -75,6 +93,12 @@ class StealthNotificationService {
     required String message,
     bool showBadge = true,
   }) async {
+    // ✅ SILENCE RULE: If we are already in this chat, don't show a popup
+    if (activeChatId == chatId) {
+      debugPrint('Silencing notification for active chat: $chatId');
+      return;
+    }
+
     // Pick a random disguise template
     final template = _disguiseTemplates[Random().nextInt(_disguiseTemplates.length)];
     final messageLength = message.length;

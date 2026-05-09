@@ -41,7 +41,7 @@ class _StealthRegistrationPageState extends ConsumerState<StealthRegistrationPag
       final prefs = ref.read(preferencesServiceProvider);
 
       // 1. Sign in to the personal vault
-      final response = await authService.signInToVault(name, code, roomId);
+      final response = await authService.signInToVault(name, code, roomId, allowRegistration: true);
 
       if (response.user != null) {
         // 2. Save local registration data

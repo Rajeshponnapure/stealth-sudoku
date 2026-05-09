@@ -1,14 +1,62 @@
 const { createClient } = require('@supabase/supabase-js');
 const fetch = require('node-fetch');
+const { GoogleAuth } = require('google-auth-library');
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 // The CLI disallows secret names prefixed with SUPABASE_. Use SERVICE_ROLE_KEY instead.
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
-const FCM_SERVER_KEY = process.env.FCM_SERVER_KEY || process.env.FIREBASE_SERVER_KEY; // legacy server key
+const FIREBASE_SERVICE_ACCOUNT_JSON = process.env.FIREBASE_SERVICE_ACCOUNT;
+const FCM_SERVER_KEY = process.env.FCM_SERVER_KEY || process.env.FIREBASE_SERVER_KEY; // legacy fallback
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-async function sendFcm(token, body) {
+function getFirebaseServiceAccount() {
+  if (!FIREBASE_SERVICE_ACCOUNT_JSON) return null;
+  try {
+    return JSON.parse(FIREBASE_SERVICE_ACCOUNT_JSON);
+  } catch (error) {
+    throw new Error(`Invalid FIREBASE_SERVICE_ACCOUNT JSON: ${error.message}`);
+  }
+}
+
+async function getAccessToken() {
+  const serviceAccount = getFirebaseServiceAccount();
+  if (!serviceAccount) return null;
+
+  const auth = new GoogleAuth({
+    credentials: serviceAccount,
+    scopes: ['https://www.googleapis.com/auth/firebase.messaging'],
+  });
+
+  const client = await auth.getClient();
+  const tokenResponse = await client.getAccessToken();
+  return typeof tokenResponse === 'string' ? tokenResponse : tokenResponse?.token;
+}
+
+async function sendFcm(token, body, projectId) {
+  if (FIREBASE_SERVICE_ACCOUNT_JSON) {
+    const accessToken = await getAccessToken();
+    if (!accessToken) {
+      throw new Error('Could not obtain Google access token from FIREBASE_SERVICE_ACCOUNT');
+    }
+
+    const res = await fetch(`https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        message: {
+          token,
+          notification: body.notification,
+          data: body.data,
+        },
+      }),
+    });
+    return res.json();
+  }
+
   const res = await fetch('https://fcm.googleapis.com/fcm/send', {
     method: 'POST',
     headers: {
@@ -26,6 +74,13 @@ async function sendFcm(token, body) {
  */
 module.exports = async (req, res) => {
   try {
+    const serviceAccount = getFirebaseServiceAccount();
+    const projectId = serviceAccount?.project_id;
+
+    if (serviceAccount && !projectId) {
+      throw new Error('FIREBASE_SERVICE_ACCOUNT is missing project_id');
+    }
+
     // Poll for a small batch
     const { data: rows } = await supabase
       .from('push_requests')
@@ -64,7 +119,7 @@ module.exports = async (req, res) => {
 
       for (const d of devices) {
         try {
-          await sendFcm(d.fcm_token, { ...message, to: d.fcm_token });
+          await sendFcm(d.fcm_token, message, projectId);
         } catch (e) {
           console.error('FCM error', e);
         }

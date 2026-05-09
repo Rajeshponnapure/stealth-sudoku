@@ -244,12 +244,13 @@ Future<void> deleteChatSession(String chatId) async {
     final roomId = myProfile['room_id'];
     if (roomId == null) return [];
 
-    // 2. Find everyone else in the same room
+    // 2. Find everyone else in the same room (including other devices of same user)
+    // In this stealth app, we want to see all profiles in the room. 
+    // We will filter out "Me" in the UI using the device_id.
     final response = await _client
         .from('profiles')
         .select()
-        .eq('room_id', roomId)
-        .neq('id', currentUserId);
+        .eq('room_id', roomId);
 
     return List<Map<String, dynamic>>.from(response);
   }

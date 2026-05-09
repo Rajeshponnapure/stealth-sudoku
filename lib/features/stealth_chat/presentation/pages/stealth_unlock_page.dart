@@ -16,13 +16,29 @@ class StealthUnlockPage extends ConsumerStatefulWidget {
 }
 
 class _StealthUnlockPageState extends ConsumerState<StealthUnlockPage> {
+  final _usernameController = TextEditingController();
   final _pinController = TextEditingController();
   bool _isLoading = false;
   String? _errorMessage;
   bool _obscurePin = true;
 
   @override
+  void initState() {
+    super.initState();
+    _loadSavedCredentials();
+  }
+
+  Future<void> _loadSavedCredentials() async {
+    final prefs = ref.read(preferencesServiceProvider);
+    final savedUsername = await prefs.getNickname();
+    if (savedUsername != null) {
+      _usernameController.text = savedUsername;
+    }
+  }
+
+  @override
   void dispose() {
+    _usernameController.dispose();
     _pinController.dispose();
     super.dispose();
   }
@@ -83,6 +99,21 @@ class _StealthUnlockPageState extends ConsumerState<StealthUnlockPage> {
                       ),
                       const SizedBox(height: 32),
                       TextField(
+                        controller: _usernameController,
+                        textAlign: TextAlign.center,
+                        decoration: InputDecoration(
+                          hintText: 'Username',
+                          prefixIcon: const Icon(Icons.person_outline),
+                          errorText: _errorMessage != null && _errorMessage!.contains('Username') ? _errorMessage : null,
+                        ),
+                        onChanged: (value) {
+                          setState(() {
+                            _errorMessage = null;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
                         controller: _pinController,
                         obscureText: _obscurePin,
                         textAlign: TextAlign.center,
@@ -96,7 +127,7 @@ class _StealthUnlockPageState extends ConsumerState<StealthUnlockPage> {
                         decoration: InputDecoration(
                           hintText: '••••••',
                           counterText: '',
-                          errorText: _errorMessage,
+                          errorText: _errorMessage != null && !_errorMessage!.contains('Username') ? _errorMessage : null,
                           prefixIcon: const Icon(Icons.vpn_key),
                           suffixIcon: IconButton(
                             icon: Icon(
@@ -248,8 +279,16 @@ class _StealthUnlockPageState extends ConsumerState<StealthUnlockPage> {
   }
 
   Future<void> _handleUnlock() async {
+    final username = _usernameController.text.trim();
     final pin = _pinController.text.trim();
-    debugPrint('🔐 Attempting unlock with PIN: ${pin.length} digits');
+    debugPrint('🔐 Attempting unlock for $username with PIN');
+
+    if (username.isEmpty) {
+      setState(() {
+        _errorMessage = 'Username is required';
+      });
+      return;
+    }
 
     if (pin.length != 6) {
       setState(() {
@@ -268,18 +307,34 @@ class _StealthUnlockPageState extends ConsumerState<StealthUnlockPage> {
       final authService = ref.read(authServiceProvider);
       final prefs = ref.read(preferencesServiceProvider);
 
-      final success = await ref.read(sessionProvider.notifier).unlock(pin, force: true);
+      // Local unlock still only needs PIN (or we could use username+PIN too, 
+      // but let's keep local unlock simple for now unless requested)
+      final success = await ref.read(sessionProvider.notifier).unlock(pin, force: false);
       debugPrint('🔐 Unlock result: $success');
 
       if (success) {
         // ── Personal Vault Login ──
         if (!authService.isAuthenticated) {
           try {
-            final nickname = await prefs.getNickname() ?? 'secure_user';
-            final roomId = await prefs.getRoomId() ?? pin;
-            await authService.signInToVault(nickname, pin, roomId);
+            final roomId = await prefs.getRoomId();
+            
+            // ✅ PHASE 1 FIX: Block login if no registration found — don't use placeholder
+            if (roomId == null) {
+              throw Exception('Device not registered. Please register first.');
+            }
+            
+            await authService.signInToVault(username, pin, roomId, allowRegistration: false);
           } catch (e) {
             debugPrint('🔐 Failed to enter vault: $e');
+            String msg = 'Incorrect credentials. Please check your username and PIN.';
+            if (e.toString().contains('not registered')) {
+              msg = 'Device not registered. Please register first.';
+            }
+            setState(() {
+              _errorMessage = msg;
+              _isLoading = false;
+            });
+            return; // ⛔ STOP navigation if vault login fails
           }
         }
 
