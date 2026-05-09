@@ -2,7 +2,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../domain/entities/message.dart';
-import '../../../../core/theme/app_theme.dart';
 
 class MessageBubble extends StatelessWidget {
   final Message message;
@@ -20,8 +19,6 @@ class MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: GestureDetector(
@@ -31,39 +28,35 @@ class MessageBubble extends StatelessWidget {
             maxWidth: MediaQuery.of(context).size.width * 0.75,
           ),
           margin: const EdgeInsets.symmetric(vertical: 4),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            color: isMe
-                ? (isDark ? AppTheme.primaryDark : AppTheme.primaryLight)
-                : (isDark ? Colors.grey[800] : Colors.grey[200]),
+            color: isMe ? Colors.black : const Color(0xFFF0F2F5),
             borderRadius: BorderRadius.only(
-              topLeft: const Radius.circular(16),
-              topRight: const Radius.circular(16),
-              bottomLeft: isMe ? const Radius.circular(16) : const Radius.circular(4),
-              bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(16),
+              topLeft: const Radius.circular(20),
+              topRight: const Radius.circular(20),
+              bottomLeft: isMe ? const Radius.circular(20) : const Radius.circular(4),
+              bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(20),
             ),
             boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 4,
-                offset: const Offset(0, 2),
-              ),
+              if (isMe)
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.1),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
             ],
           ),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
             children: [
-              // Self-destruct warning
               if (message.isSelfDestruct && message.destructAt != null)
                 _buildSelfDestructIndicator(),
 
-              // Message content based on type
               _buildMessageContent(context),
 
-              const SizedBox(height: 4),
+              const SizedBox(height: 6),
 
-              // Message metadata (time, status)
-              _buildMessageMetadata(context, isDark),
+              _buildMessageMetadata(context),
             ],
           ),
         ),
@@ -75,23 +68,24 @@ class MessageBubble extends StatelessWidget {
     final timeLeft = message.destructAt!.difference(DateTime.now());
     
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color: Colors.red.withValues(alpha: 0.2),
-        borderRadius: BorderRadius.circular(8),
+        color: Colors.red.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.timer, size: 12, color: Colors.red),
-          const SizedBox(width: 4),
+          const Icon(Icons.timer_outlined, size: 14, color: Colors.red),
+          const SizedBox(width: 6),
           Text(
-            'Self-destructs in ${timeLeft.inSeconds}s',
+            'PURGE IN ${timeLeft.inSeconds}S',
             style: const TextStyle(
               fontSize: 10,
               color: Colors.red,
-              fontWeight: FontWeight.bold,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.5,
             ),
           ),
         ],
@@ -117,9 +111,12 @@ class MessageBubble extends StatelessWidget {
   Widget _buildTextMessage() {
     return SelectableText(
       message.content,
+      textAlign: isMe ? TextAlign.right : TextAlign.left,
       style: TextStyle(
         fontSize: 15,
-        color: isMe ? Colors.white : null,
+        fontWeight: FontWeight.w500,
+        color: isMe ? Colors.white : Colors.black87,
+        height: 1.3,
       ),
     );
   }
@@ -283,17 +280,16 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
-  Widget _buildMessageMetadata(BuildContext context, bool isDark) {
+  Widget _buildMessageMetadata(BuildContext context) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
           _formatTime(message.timestamp),
           style: TextStyle(
-            fontSize: 11,
-            color: isMe 
-                ? Colors.white70 
-                : (isDark ? Colors.grey[400] : Colors.grey[600]),
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: isMe ? Colors.white54 : Colors.black26,
           ),
         ),
         if (isMe) ...[

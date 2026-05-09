@@ -68,61 +68,67 @@ class _NotificationSettingsPageState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text('Notification Settings'),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.black),
+          onPressed: () => context.pop(),
+        ),
+        title: const Text(
+          'Alert Protocols',
+          style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900, letterSpacing: -0.5),
+        ),
         actions: [
           TextButton(
             onPressed: _saveSettings,
-            child: const Text('Save', style: TextStyle(color: Colors.white)),
+            child: const Text('DEPLOY', style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900, letterSpacing: 1.0)),
           ),
         ],
       ),
       body: ListView(
+        padding: const EdgeInsets.all(24),
         children: [
-          _buildSection('Messages', [
-            SwitchListTile(
-              secondary: const Icon(Icons.message),
-              title: const Text('Message Notifications'),
-              subtitle: const Text('Show notifications for new messages'),
+          _buildSection('COMMUNICATIONS', [
+            _buildSwitchTile(
+              icon: Icons.message_rounded,
+              title: 'DIRECT MESSAGES',
+              subtitle: 'NOTIFY ON INCOMING DATA',
               value: _messageNotifications,
               onChanged: (v) => setState(() => _messageNotifications = v),
             ),
-            SwitchListTile(
-              secondary: const Icon(Icons.visibility_off),
-              title: const Text('Hide Message Preview'),
-              subtitle: const Text('Don\'t show message content in notification'),
+            _buildSwitchTile(
+              icon: Icons.visibility_off_rounded,
+              title: 'STEALTH MODE',
+              subtitle: 'HIDE CONTENT PREVIEWS',
               value: _previewEnabled,
               onChanged: (v) => setState(() => _previewEnabled = v),
             ),
           ]),
-          _buildSection('Calls', [
-            SwitchListTile(
-              secondary: const Icon(Icons.call),
-              title: const Text('Call Notifications'),
-              subtitle: const Text('Show incoming call alerts'),
+          const SizedBox(height: 32),
+          _buildSection('VOICE SECURE', [
+            _buildSwitchTile(
+              icon: Icons.call_rounded,
+              title: 'INCOMING CALLS',
+              subtitle: 'SIGNAL ON VOICE REQUEST',
               value: _callNotifications,
               onChanged: (v) => setState(() => _callNotifications = v),
             ),
           ]),
-          _buildSection('Groups', [
-            SwitchListTile(
-              secondary: const Icon(Icons.group),
-              title: const Text('Group Notifications'),
-              subtitle: const Text('Show notifications for group messages'),
-              value: _groupNotifications,
-              onChanged: (v) => setState(() => _groupNotifications = v),
-            ),
-          ]),
-          _buildSection('Sound & Vibration', [
-            SwitchListTile(
-              secondary: const Icon(Icons.volume_up),
-              title: const Text('Sound'),
+          const SizedBox(height: 32),
+          _buildSection('HAPTIC & AUDIO', [
+            _buildSwitchTile(
+              icon: Icons.volume_up_rounded,
+              title: 'AUDIBLE SIGNALS',
+              subtitle: 'PLAY SECURE TONES',
               value: _soundEnabled,
               onChanged: (v) => setState(() => _soundEnabled = v),
             ),
-            SwitchListTile(
-              secondary: const Icon(Icons.vibration),
-              title: const Text('Vibration'),
+            _buildSwitchTile(
+              icon: Icons.vibration_rounded,
+              title: 'HAPTIC FEEDBACK',
+              subtitle: 'VIBRATE ON ALERT',
               value: _vibrationEnabled,
               onChanged: (v) => setState(() => _vibrationEnabled = v),
             ),
@@ -136,21 +142,51 @@ class _NotificationSettingsPageState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-          child: Text(
-            title,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-              color: Theme.of(context).primaryColor,
-              letterSpacing: 0.5,
-            ),
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w900,
+            color: Colors.black38,
+            letterSpacing: 1.5,
           ),
         ),
-        ...children,
-        const Divider(),
+        const SizedBox(height: 16),
+        Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFFF8F9FA),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFFF0F2F5)),
+          ),
+          child: Column(
+            children: children,
+          ),
+        ),
       ],
+    );
+  }
+
+  Widget _buildSwitchTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      leading: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+        child: Icon(icon, color: Colors.black, size: 20),
+      ),
+      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12, letterSpacing: 0.5)),
+      subtitle: Text(subtitle, style: const TextStyle(fontSize: 10, color: Colors.black38, fontWeight: FontWeight.w900)),
+      trailing: Switch(
+        value: value,
+        onChanged: onChanged,
+        activeThumbColor: Colors.black,
+      ),
     );
   }
 }

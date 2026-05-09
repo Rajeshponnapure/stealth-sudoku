@@ -7,7 +7,6 @@ import '../../../../shared/services/auth_service.dart';
 import '../../../../shared/services/stealth_notification_service.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/entities/chat_session.dart';
-import 'package:uuid/uuid.dart';
 
 final messageServiceProvider = Provider((ref) {
   return MessageService(ref.watch(authServiceProvider));
@@ -19,11 +18,22 @@ class MessageService {
 
   MessageService(this._authService);
 
+  DateTime _parseTimestamp(dynamic value) {
+    if (value == null) return DateTime.now();
+    if (value is DateTime) return value;
+    if (value is int) {
+      // Heuristic: seconds vs milliseconds
+      return value > 1000000000000
+          ? DateTime.fromMillisecondsSinceEpoch(value)
+          : DateTime.fromMillisecondsSinceEpoch(value * 1000);
+    }
+    final s = value.toString();
+    return DateTime.tryParse(s) ?? DateTime.now();
+  }
+
   // Create or get chat session
   Future<String> createChatSession({
     required String participantId,
-    bool isGroup = false,
-    String? groupName,
   }) async {
     final currentUserId = _authService.currentUserId;
     if (currentUserId == null) throw Exception('Not authenticated');
@@ -33,7 +43,6 @@ class MessageService {
         .from('chat_sessions')
         .select()
         .contains('participant_ids', [currentUserId, participantId])
-        .eq('is_group', false)
         .maybeSingle();
 
     if (existingChat != null) {
@@ -42,71 +51,28 @@ class MessageService {
 
     // Create new chat
     final response = await _client.from('chat_sessions').insert({
-      'creator_id': currentUserId,
       'participant_ids': [currentUserId, participantId],
-      'is_group': isGroup,
-      'group_name': groupName,
     }).select().single();
 
     return response['id'] as String;
   }
 
-  // Create or join a Room by ID
-  Future<String> joinOrCreateRoom(String roomId) async {
-    final currentUserId = _authService.currentUserId;
-    if (currentUserId == null) throw Exception('Not authenticated');
+  Future<void> deleteChatSession(String chatId) async {
+    final userId = _authService.currentUserId;
+    if (userId == null) return;
 
-    // Convert 6-digit room ID into a consistent UUID
-    final roomUuid = const Uuid().v5('6ba7b811-9dad-11d1-80b4-00c04fd430c8', 'stealth_sudoku_room_$roomId');
+    // Delete all messages in the chat first
+    await _client
+        .from('messages')
+        .delete()
+        .eq('chat_id', chatId);
 
-    // Check if room exists
-    final existingChat = await _client
+    // Then delete the chat session
+    await _client
         .from('chat_sessions')
-        .select()
-        .eq('id', roomUuid)
-        .maybeSingle();
-
-    if (existingChat != null) {
-      // Room exists, add me to participants if not already
-      List<dynamic> participants = List.from(existingChat['participant_ids'] ?? []);
-      if (!participants.contains(currentUserId)) {
-        participants.add(currentUserId);
-        await _client.from('chat_sessions').update({
-          'participant_ids': participants,
-        }).eq('id', roomUuid);
-      }
-      return existingChat['id'] as String;
-    }
-
-    // Room doesn't exist, create it
-    final response = await _client.from('chat_sessions').insert({
-      'id': roomUuid,
-      'creator_id': currentUserId,
-      'participant_ids': [currentUserId],
-      'is_group': true,
-      'group_name': 'Room $roomId',
-    }).select().single();
-
-    return response['id'] as String;
+        .delete()
+        .eq('id', chatId);
   }
-
-Future<void> deleteChatSession(String chatId) async {
-  final userId = _authService.currentUserId;
-  if (userId == null) return;
-
-  // Delete all messages in the chat first
-  await _client
-      .from('messages')
-      .delete()
-      .eq('chat_id', chatId);
-
-  // Then delete the chat session
-  await _client
-      .from('chat_sessions')
-      .delete()
-      .eq('id', chatId);
-}
-
 
   // Get chat sessions
   Future<List<ChatSession>> getChatSessions() async {
@@ -125,10 +91,8 @@ Future<void> deleteChatSession(String chatId) async {
             sender_id
           )
         ''')
-        .or('creator_id.eq.$currentUserId,participant_ids.cs.{$currentUserId}')
-        .order('updated_at', ascending: false)
-        .order('created_at', referencedTable: 'messages', ascending: false)
-        .limit(1, referencedTable: 'messages');
+        .contains('participant_ids', [currentUserId])
+        .order('updated_at', ascending: false);
 
     return (response as List).map((json) {
       // Get last message
@@ -136,24 +100,26 @@ Future<void> deleteChatSession(String chatId) async {
       Message? lastMessage;
       
       if (messages != null && messages.isNotEmpty) {
+        // Sort messages manually as Supabase might not support multi-level sorting perfectly here
+        messages.sort((a, b) => b['created_at'].compareTo(a['created_at']));
         final lastMsgJson = messages.first;
         lastMessage = Message(
           id: lastMsgJson['id'],
           chatId: json['id'],
           senderId: lastMsgJson['sender_id'] ?? '',
-          receiverId: '', // Will be filled from participant_ids
+          receiverId: '', 
           content: lastMsgJson['content'],
           type: MessageType.values.firstWhere(
             (e) => e.name == lastMsgJson['message_type'],
             orElse: () => MessageType.text,
           ),
           status: MessageStatus.sent,
-          timestamp: DateTime.parse(lastMsgJson['created_at']),
+          timestamp: _parseTimestamp(lastMsgJson['created_at']),
         );
       }
 
-      final participantIds = json['participant_ids'] as List;
-      final peerId = participantIds.cast<String>().firstWhere(
+      final participantIds = List<String>.from(json['participant_ids'] ?? []);
+      final peerId = participantIds.firstWhere(
         (id) => id != currentUserId,
         orElse: () => currentUserId,
       );
@@ -163,8 +129,8 @@ Future<void> deleteChatSession(String chatId) async {
         peerId: peerId,
         peerName: '', // Will be fetched separately
         lastMessage: lastMessage,
-        createdAt: DateTime.parse(json['created_at']),
-        lastActivityAt: DateTime.parse(json['updated_at']),
+        createdAt: _parseTimestamp(json['created_at']),
+        lastActivityAt: _parseTimestamp(json['updated_at']),
       );
     }).toList();
   }
@@ -174,37 +140,22 @@ Future<void> deleteChatSession(String chatId) async {
     required String id,
     required String chatId,
     required String senderId,
-    required String senderDeviceId,
-    required String receiverId,
     required String content,
     required MessageType type,
     String? fileUrl,
     String? fileName,
-    int? fileSize,
-    bool isSelfDestruct = false,
-    Duration? destructAfter,
   }) async {
     final currentUserId = _authService.currentUserId;
     if (currentUserId == null) throw Exception('Not authenticated');
-
-    DateTime? destructAt;
-    if (isSelfDestruct && destructAfter != null) {
-      destructAt = DateTime.now().add(destructAfter);
-    }
 
     final response = await _client.from('messages').insert({
       'id': id,
       'chat_id': chatId,
       'sender_id': senderId,
-      'sender_device_id': senderDeviceId,
-      'receiver_id': receiverId,
       'content': content,
       'message_type': type.name,
       'file_url': fileUrl,
       'file_name': fileName,
-      'file_size': fileSize,
-      'is_self_destruct': isSelfDestruct,
-      'destruct_at': destructAt?.toIso8601String(),
     }).select().single();
     
     // ✅ Update chat session timestamp so it jumps to top of list
@@ -215,51 +166,18 @@ Future<void> deleteChatSession(String chatId) async {
     return Message(
       id: response['id'],
       chatId: response['chat_id'],
-      roomId: response['chat_id'],
       senderId: response['sender_id'],
-      senderDeviceId: response['sender_device_id'] ?? response['sender_id'],
-      receiverId: response['receiver_id'] ?? '',
+      receiverId: '', 
       content: response['content'],
       type: MessageType.values.firstWhere(
         (e) => e.name == response['message_type'],
         orElse: () => MessageType.text,
       ),
       status: MessageStatus.sent,
-      timestamp: DateTime.parse(response['created_at']),
+      timestamp: _parseTimestamp(response['created_at']),
       filePath: response['file_url'],
       fileName: response['file_name'],
-      fileSize: response['file_size'],
-      isSelfDestruct: response['is_self_destruct'] ?? false,
-      destructAt: response['destruct_at'] != null
-          ? DateTime.parse(response['destruct_at'])
-          : null,
     );
-  }
-
-  // Find other users who share the same Room ID (Auto-Discovery)
-  Future<List<Map<String, dynamic>>> getUsersInMyRoom() async {
-    final currentUserId = _authService.currentUserId;
-    if (currentUserId == null) return [];
-
-    // 1. Get my room_id
-    final myProfile = await _client
-        .from('profiles')
-        .select('room_id')
-        .eq('id', currentUserId)
-        .single();
-    
-    final roomId = myProfile['room_id'];
-    if (roomId == null) return [];
-
-    // 2. Find everyone else in the same room (including other devices of same user)
-    // In this stealth app, we want to see all profiles in the room. 
-    // We will filter out "Me" in the UI using the device_id.
-    final response = await _client
-        .from('profiles')
-        .select()
-        .eq('room_id', roomId);
-
-    return List<Map<String, dynamic>>.from(response);
   }
 
   // Get messages for a chat
@@ -274,30 +192,23 @@ Future<void> deleteChatSession(String chatId) async {
       return Message(
         id: json['id'],
         chatId: json['chat_id'],
-        roomId: json['chat_id'],
         senderId: json['sender_id'],
-        senderDeviceId: json['sender_device_id'] ?? json['sender_id'],
-        receiverId: '', // Will be filled from chat participants
+        receiverId: '', 
         content: json['content'],
         type: MessageType.values.firstWhere(
           (e) => e.name == json['message_type'],
           orElse: () => MessageType.text,
         ),
         status: MessageStatus.sent,
-        timestamp: DateTime.parse(json['created_at']),
+        timestamp: _parseTimestamp(json['created_at']),
         filePath: json['file_url'],
         fileName: json['file_name'],
-        fileSize: json['file_size'],
-        isSelfDestruct: json['is_self_destruct'] ?? false,
-        destructAt: json['destruct_at'] != null
-            ? DateTime.parse(json['destruct_at'])
-            : null,
       );
     }).toList();
   }
 
-  // Subscribe to real-time messages and show MOCK notifications
-  Stream<Message> subscribeToMessages(String chatId, {String? myDeviceId}) {
+  // Subscribe to real-time messages
+  Stream<Message> subscribeToMessages(String chatId, {String? currentUserId}) {
     final controller = StreamController<Message>();
 
     final channel = _client
@@ -316,29 +227,21 @@ Future<void> deleteChatSession(String chatId) async {
             final message = Message(
               id: json['id'],
               chatId: json['chat_id'],
-              roomId: json['chat_id'],
               senderId: json['sender_id'],
-              senderDeviceId: json['sender_device_id'] ?? json['sender_id'],
-              receiverId: json['receiver_id'] ?? '',
+              receiverId: '',
               content: json['content'],
               type: MessageType.values.firstWhere(
                 (e) => e.name == json['message_type'],
                 orElse: () => MessageType.text,
               ),
               status: MessageStatus.sent,
-              timestamp: DateTime.parse(json['created_at']),
+              timestamp: _parseTimestamp(json['created_at']),
               filePath: json['file_url'],
               fileName: json['file_name'],
-              fileSize: json['file_size'],
-              isSelfDestruct: json['is_self_destruct'] ?? false,
-              destructAt: json['destruct_at'] != null
-                  ? DateTime.parse(json['destruct_at'])
-                  : null,
             );
             
-            // ── TRIGGER MOCK NOTIFICATION ──
-            // If the message is NOT from this device, show a fake notification
-            if (myDeviceId != null && (message.senderDeviceId ?? message.senderId) != myDeviceId) {
+            // ── TRIGGER DISGUISED NOTIFICATION ──
+            if (currentUserId != null && message.senderId != currentUserId) {
               await StealthNotificationService.showDisguisedMessage(
                 chatId: chatId,
                 senderName: 'Secure User',
@@ -347,50 +250,6 @@ Future<void> deleteChatSession(String chatId) async {
             }
 
             controller.add(message);
-          },
-        )
-        .subscribe();
-
-    controller.onCancel = () {
-      channel.unsubscribe();
-    };
-
-    return controller.stream;
-  }
-
-  // Send typing indicator
-  Future<void> sendTypingIndicator(String chatId, bool isTyping) async {
-    final currentUserId = _authService.currentUserId;
-    if (currentUserId == null) return;
-
-    await _client.from('typing_indicators').upsert({
-      'user_id': currentUserId,
-      'chat_id': chatId,
-      'is_typing': isTyping,
-      'updated_at': DateTime.now().toIso8601String(),
-    }, onConflict: 'chat_id,user_id');
-  }
-
-  // Subscribe to typing indicators
-  Stream<Map<String, bool>> subscribeToTyping(String chatId) {
-    final controller = StreamController<Map<String, bool>>();
-
-    final channel = _client
-        .channel('typing:$chatId')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'typing_indicators',
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'chat_id',
-            value: chatId,
-          ),
-          callback: (payload) {
-            final json = payload.newRecord;
-            controller.add({
-              json['user_id'] as String: json['is_typing'] as bool,
-            });
           },
         )
         .subscribe();
@@ -427,5 +286,4 @@ Future<void> deleteChatSession(String chatId) async {
         .from('message-attachments')
         .getPublicUrl(storagePath);
   }
-
 }

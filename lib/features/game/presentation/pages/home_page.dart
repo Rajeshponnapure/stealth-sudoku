@@ -24,12 +24,10 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   void _checkPendingNavigations() {
     final nav = StealthNotificationService.getPendingNavigation();
-    if (nav != null && nav['type'] == 'incoming_call') {
-      final roomId = nav['roomId'];
-      if (roomId != null) {
-        // Go to unlock screen which will handle redirect to the chat room
-        context.push('/sys_config/unlock');
-      }
+    if (nav != null) {
+      // All notification types go to unlock screen first
+      // After 7-tap unlock, user will be redirected to appropriate screen
+      context.push('/sys_config/unlock');
     }
   }
 

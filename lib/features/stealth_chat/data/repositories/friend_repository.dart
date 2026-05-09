@@ -1,4 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../../shared/services/stealth_notification_service.dart';
 
 class FriendRepository {
   final SupabaseClient _supabase;
@@ -11,8 +12,8 @@ class FriendRepository {
     if (currentUserId == null) throw Exception('Not authenticated');
 
     final response = await _supabase
-        .from('users')
-        .select('id, username, display_name, avatar_url, bio, is_online')
+        .from('profiles')
+        .select('id, username, display_name, is_online')
         .or('username.ilike.%$query%,display_name.ilike.%$query%')
         .neq('id', currentUserId)
         .limit(20);
@@ -21,16 +22,33 @@ class FriendRepository {
   }
 
   // Send friend request
-  Future<void> sendRequest(String receiverId, {String? message}) async {
+  Future<void> sendRequest(String receiverId) async {
     final currentUserId = _supabase.auth.currentUser?.id;
     if (currentUserId == null) throw Exception('Not authenticated');
 
-    await _supabase.from('friend_requests').insert({
+    // Get current user info for notification
+    final currentUser = await _supabase
+        .from('profiles')
+        .select('username, display_name')
+        .eq('id', currentUserId)
+        .single();
+    final senderName = currentUser['display_name'] ?? currentUser['username'] ?? 'Someone';
+
+    // Insert friend request
+    final result = await _supabase.from('friend_requests').insert({
       'sender_id': currentUserId,
       'receiver_id': receiverId,
       'status': 'pending',
-      'message': message,
-    });
+    }).select();
+
+    // Send notification to receiver
+    if (result.isNotEmpty) {
+      final requestId = result[0]['id'];
+      await StealthNotificationService.showFriendRequest(
+        requestId: requestId.toString(),
+        senderName: senderName,
+      );
+    }
   }
 
   // Get pending requests (received)
@@ -43,14 +61,12 @@ class FriendRepository {
         .select('''
           id,
           sender_id,
-          message,
           created_at,
-          sender:users!friend_requests_sender_id_fkey(
+          sender:profiles!friend_requests_sender_id_fkey(
             id,
             username,
             display_name,
-            avatar_url,
-            bio
+            is_online
           )
         ''')
         .eq('receiver_id', currentUserId)
@@ -71,13 +87,12 @@ class FriendRepository {
           id,
           receiver_id,
           status,
-          message,
           created_at,
-          receiver:users!friend_requests_receiver_id_fkey(
+          receiver:profiles!friend_requests_receiver_id_fkey(
             id,
             username,
             display_name,
-            avatar_url
+            is_online
           )
         ''')
         .eq('sender_id', currentUserId)
@@ -88,10 +103,26 @@ class FriendRepository {
 
   // Accept friend request
   Future<void> acceptRequest(String requestId) async {
+    final currentUserId = _supabase.auth.currentUser?.id;
+    if (currentUserId == null) throw Exception('Not authenticated');
+
+    // Get request details before updating
+    final request = await _supabase
+        .from('friend_requests')
+        .select('sender_id, receiver:profiles!friend_requests_receiver_id_fkey(display_name, username)')
+        .eq('id', requestId)
+        .single();
+
+    final accepterName = request['receiver']['display_name'] ?? request['receiver']['username'] ?? 'Someone';
+
+    // Update status to accepted
     await _supabase
         .from('friend_requests')
         .update({'status': 'accepted'})
         .eq('id', requestId);
+
+    // Show local notification that request was accepted
+    await StealthNotificationService.showFriendRequestAccepted(accepterName: accepterName);
   }
 
   // Reject friend request
@@ -110,50 +141,48 @@ class FriendRepository {
         .eq('id', requestId);
   }
 
-  // Get friends list
+  // Get friends list (Based on accepted friend requests)
   Future<List<Map<String, dynamic>>> getFriends() async {
     final currentUserId = _supabase.auth.currentUser?.id;
     if (currentUserId == null) throw Exception('Not authenticated');
 
+    // In a system without a separate friendships table, 
+    // friendship is defined as an 'accepted' friend request.
     final response = await _supabase
-        .from('friendships')
+        .from('friend_requests')
         .select('''
           id,
-          user1_id,
-          user2_id,
+          sender_id,
+          receiver_id,
           created_at,
-          user1:users!friendships_user1_id_fkey(
+          sender:profiles!friend_requests_sender_id_fkey(
             id,
             username,
             display_name,
-            avatar_url,
-            bio,
             is_online,
             last_seen
           ),
-          user2:users!friendships_user2_id_fkey(
+          receiver:profiles!friend_requests_receiver_id_fkey(
             id,
             username,
             display_name,
-            avatar_url,
-            bio,
             is_online,
             last_seen
           )
         ''')
-        .or('user1_id.eq.$currentUserId,user2_id.eq.$currentUserId')
+        .or('sender_id.eq.$currentUserId,receiver_id.eq.$currentUserId')
+        .eq('status', 'accepted')
         .order('created_at', ascending: false);
 
-    // Extract the friend (not current user)
     final friends = <Map<String, dynamic>>[];
-    for (var friendship in response) {
-      final user1 = friendship['user1'] as Map<String, dynamic>;
-      final user2 = friendship['user2'] as Map<String, dynamic>;
+    for (var req in response) {
+      final sender = req['sender'] as Map<String, dynamic>;
+      final receiver = req['receiver'] as Map<String, dynamic>;
       
-      final friend = user1['id'] == currentUserId ? user2 : user1;
+      final friend = sender['id'] == currentUserId ? receiver : sender;
       friends.add({
-        'friendship_id': friendship['id'],
-        'created_at': friendship['created_at'],
+        'request_id': req['id'],
+        'created_at': req['created_at'],
         ...friend,
       });
     }
@@ -166,14 +195,11 @@ class FriendRepository {
     final currentUserId = _supabase.auth.currentUser?.id;
     if (currentUserId == null) return false;
 
-    final user1 = currentUserId.compareTo(userId) < 0 ? currentUserId : userId;
-    final user2 = currentUserId.compareTo(userId) < 0 ? userId : currentUserId;
-
     final response = await _supabase
-        .from('friendships')
+        .from('friend_requests')
         .select('id')
-        .eq('user1_id', user1)
-        .eq('user2_id', user2)
+        .or('and(sender_id.eq.$currentUserId,receiver_id.eq.$userId),and(sender_id.eq.$userId,receiver_id.eq.$currentUserId)')
+        .eq('status', 'accepted')
         .maybeSingle();
 
     return response != null;
@@ -184,33 +210,21 @@ class FriendRepository {
     final currentUserId = _supabase.auth.currentUser?.id;
     if (currentUserId == null) return null;
 
-    // Check if there's a pending request from current user
-    final sentRequest = await _supabase
+    final response = await _supabase
         .from('friend_requests')
         .select('status')
-        .eq('sender_id', currentUserId)
-        .eq('receiver_id', userId)
+        .or('and(sender_id.eq.$currentUserId,receiver_id.eq.$userId),and(sender_id.eq.$userId,receiver_id.eq.$currentUserId)')
         .maybeSingle();
 
-    if (sentRequest != null) return sentRequest['status'];
-
-    // Check if there's a pending request to current user
-    final receivedRequest = await _supabase
-        .from('friend_requests')
-        .select('status')
-        .eq('sender_id', userId)
-        .eq('receiver_id', currentUserId)
-        .maybeSingle();
-
-    return receivedRequest?['status'];
+    return response?['status'];
   }
 
-  // Remove friend
-  Future<void> removeFriend(String friendshipId) async {
+  // Remove friend (Delete the accepted request)
+  Future<void> removeFriend(String requestId) async {
     await _supabase
-        .from('friendships')
+        .from('friend_requests')
         .delete()
-        .eq('id', friendshipId);
+        .eq('id', requestId);
   }
 
   // Subscribe to friend requests in real-time

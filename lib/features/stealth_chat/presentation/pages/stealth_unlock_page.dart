@@ -3,10 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/security/session_manager.dart';
-import '../../../../core/theme/app_theme.dart';
 import '../../../../core/di/injection_container.dart';
 import '../../../../shared/services/auth_service.dart';
-
+import '../../../../shared/services/stealth_notification_service.dart';
 
 class StealthUnlockPage extends ConsumerStatefulWidget {
   const StealthUnlockPage({super.key});
@@ -16,8 +15,8 @@ class StealthUnlockPage extends ConsumerStatefulWidget {
 }
 
 class _StealthUnlockPageState extends ConsumerState<StealthUnlockPage> {
-  final _usernameController = TextEditingController();
-  final _pinController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
   bool _isLoading = false;
   String? _errorMessage;
   bool _obscurePin = true;
@@ -30,270 +29,25 @@ class _StealthUnlockPageState extends ConsumerState<StealthUnlockPage> {
 
   Future<void> _loadSavedCredentials() async {
     final prefs = ref.read(preferencesServiceProvider);
-    final savedUsername = await prefs.getNickname();
-    if (savedUsername != null) {
-      _usernameController.text = savedUsername;
+    final savedEmail = await prefs.getNickname(); 
+    if (savedEmail != null && savedEmail.contains('@')) {
+      _emailController.text = savedEmail;
     }
   }
 
   @override
   void dispose() {
-    _usernameController.dispose();
-    _pinController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-
-    return Scaffold(
-      resizeToAvoidBottomInset: true,
-      appBar: AppBar(
-        title: const Text('System Configuration'),
-        centerTitle: true,
-      ),
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return SingleChildScrollView(
-              padding: EdgeInsets.only(
-                left: 24,
-                right: 24,
-                top: 24,
-                bottom: (bottomInset > 0 ? bottomInset : 24) + 16,
-              ),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  minHeight: constraints.maxHeight -
-                      24 -
-                      (bottomInset > 0 ? bottomInset : 24),
-                ),
-                child: IntrinsicHeight(
-                  child: Column(
-                    children: [
-                      const SizedBox(height: 16),
-                      Icon(
-                        Icons.lock_outline,
-                        size: 80,
-                        color:
-                            isDark ? AppTheme.primaryDark : AppTheme.primaryLight,
-                      ),
-                      const SizedBox(height: 32),
-                      Text(
-                        'Enter Security Code',
-                        style: Theme.of(context)
-                            .textTheme
-                            .headlineSmall
-                            ?.copyWith(fontWeight: FontWeight.bold),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'This is a secure area. Please authenticate.',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: Colors.grey,
-                            ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 32),
-                      TextField(
-                        controller: _usernameController,
-                        textAlign: TextAlign.center,
-                        decoration: InputDecoration(
-                          hintText: 'Username',
-                          prefixIcon: const Icon(Icons.person_outline),
-                          errorText: _errorMessage != null && _errorMessage!.contains('Username') ? _errorMessage : null,
-                        ),
-                        onChanged: (value) {
-                          setState(() {
-                            _errorMessage = null;
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: _pinController,
-                        obscureText: _obscurePin,
-                        textAlign: TextAlign.center,
-                        keyboardType: TextInputType.number,
-                        maxLength: 6,
-                        style: const TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 8,
-                        ),
-                        decoration: InputDecoration(
-                          hintText: '••••••',
-                          counterText: '',
-                          errorText: _errorMessage != null && !_errorMessage!.contains('Username') ? _errorMessage : null,
-                          prefixIcon: const Icon(Icons.vpn_key),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _obscurePin ? Icons.visibility_off : Icons.visibility,
-                            ),
-                            onPressed: () {
-                              setState(() {
-                                _obscurePin = !_obscurePin;
-                              });
-                            },
-                          ),
-                        ),
-                        onChanged: (value) {
-                          setState(() {
-                            _errorMessage = null;
-                          });
-                        },
-                        onSubmitted: (_) => _handleUnlock(),
-                      ),
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: _isLoading ? null : _handleUnlock,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: isDark
-                                ? AppTheme.primaryDark
-                                : AppTheme.primaryLight,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                          ),
-                          child: _isLoading
-                              ? const SizedBox(
-                                  height: 20,
-                                  width: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : const Text(
-                                  'Unlock',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-
-                      // Biometric Unlock Button
-                      FutureBuilder<bool>(
-                        future: ref
-                            .read(biometricServiceProvider)
-                            .isBiometricAvailable(),
-                        builder: (context, snapshot) {
-                          if (snapshot.data != true ||
-                              !ref.watch(sessionProvider).biometricEnabled) {
-                            return const SizedBox.shrink();
-                          }
-
-                          return FutureBuilder<String>(
-                            future: ref
-                                .read(biometricServiceProvider)
-                                .getBiometricTypeString(),
-                            builder: (context, typeSnapshot) {
-                              final biometricType =
-                                  typeSnapshot.data ?? 'Biometric';
-
-                              return SizedBox(
-                                width: double.infinity,
-                                child: OutlinedButton.icon(
-                                  onPressed: _handleBiometricUnlock,
-                                  icon: Icon(
-                                    biometricType.contains('Face')
-                                        ? Icons.face
-                                        : Icons.fingerprint,
-                                  ),
-                                  label:
-                                      Text('Unlock with $biometricType'),
-                                  style: OutlinedButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(
-                                        vertical: 14),
-                                  ),
-                                ),
-                              );
-                            },
-                          );
-                        },
-                      ),
-
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          TextButton(
-                            onPressed: () => context.pop(),
-                            child: const Text('Cancel'),
-                          ),
-                          const SizedBox(width: 16),
-                          TextButton(
-                            onPressed: () => context.push('/sys_config/register'),
-                            style: TextButton.styleFrom(
-                              foregroundColor: isDark ? AppTheme.primaryDark : AppTheme.primaryLight,
-                              textStyle: const TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            child: const Text('Create a Room'),
-                          ),
-                        ],
-                      ),
-                      const Spacer(),
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.amber.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.amber),
-                        ),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Icon(Icons.info_outline,
-                                color: Colors.amber),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                'Enter your room code to login. If you do not have a room yet, click "Create a Room".',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: isDark
-                                      ? Colors.amber[200]
-                                      : Colors.amber[900],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        ),
-      ),
-    );
-  }
-
   Future<void> _handleUnlock() async {
-    final username = _usernameController.text.trim();
-    final pin = _pinController.text.trim();
-    debugPrint('🔐 Attempting unlock for $username with PIN');
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
 
-    if (username.isEmpty) {
-      setState(() {
-        _errorMessage = 'Username is required';
-      });
-      return;
-    }
-
-    if (pin.length != 6) {
-      setState(() {
-        _errorMessage = 'PIN must be 6 digits';
-      });
+    if (email.isEmpty || password.isEmpty) {
+      setState(() => _errorMessage = 'EMAIL AND PASSWORD REQUIRED');
       return;
     }
 
@@ -303,127 +57,297 @@ class _StealthUnlockPageState extends ConsumerState<StealthUnlockPage> {
     });
 
     try {
-      debugPrint('🔐 Calling session unlock...');
       final authService = ref.read(authServiceProvider);
-      final prefs = ref.read(preferencesServiceProvider);
+      final response = await authService.signInWithEmail(email: email, password: password);
 
-      // Local unlock still only needs PIN (or we could use username+PIN too, 
-      // but let's keep local unlock simple for now unless requested)
-      final success = await ref.read(sessionProvider.notifier).unlock(pin, force: false);
-      debugPrint('🔐 Unlock result: $success');
-
-      if (success) {
-        // ── Personal Vault Login ──
-        if (!authService.isAuthenticated) {
-          try {
-            final roomId = await prefs.getRoomId();
-            
-            // ✅ PHASE 1 FIX: Block login if no registration found — don't use placeholder
-            if (roomId == null) {
-              throw Exception('Device not registered. Please register first.');
-            }
-            
-            await authService.signInToVault(username, pin, roomId, allowRegistration: false);
-          } catch (e) {
-            debugPrint('🔐 Failed to enter vault: $e');
-            String msg = 'Incorrect credentials. Please check your username and PIN.';
-            if (e.toString().contains('not registered')) {
-              msg = 'Device not registered. Please register first.';
-            }
-            setState(() {
-              _errorMessage = msg;
-              _isLoading = false;
-            });
-            return; // ⛔ STOP navigation if vault login fails
-          }
+      if (response.user != null) {
+        // Unlock session locally with the password
+        final success = await ref.read(sessionProvider.notifier).unlock(password, force: true);
+        if (success && mounted) {
+          _handlePostUnlockRedirect();
         }
-
-        if (mounted) {
-          context.go('/sys_config/list');
-        }
-      } else {
-        setState(() {
-          _errorMessage = 'Invalid PIN';
-          _isLoading = false;
-        });
-        _pinController.clear();
       }
     } catch (e) {
-      debugPrint('🔐 Error during unlock: $e');
-      if (!mounted) return;
       setState(() {
-        _errorMessage = 'Authentication failed: $e';
+        _errorMessage = 'AUTHENTICATION FAILED: ${e.toString().toUpperCase()}';
         _isLoading = false;
       });
     }
   }
 
   Future<void> _handleBiometricUnlock() async {
-    setState(() {
-      _isLoading = true;
-    });
-
+    setState(() => _isLoading = true);
     try {
-      final success =
-          await ref.read(sessionProvider.notifier).unlockWithBiometric();
-
+      final success = await ref.read(sessionProvider.notifier).unlockWithBiometric();
       if (!mounted) return;
 
       if (success) {
-        debugPrint('🔐 Biometric unlock successful');
-
-        // Perform vault login so Supabase is authenticated
         final authService = ref.read(authServiceProvider);
         if (!authService.isAuthenticated) {
-          try {
-            final prefs = ref.read(preferencesServiceProvider);
-            final savedUsername = await prefs.getNickname();
-            final roomId = await prefs.getRoomId();
-            final savedPin = await ref.read(sessionProvider.notifier).getSavedPin();
+          // Attempt background login with saved credentials
+          final prefs = ref.read(preferencesServiceProvider);
+          final email = await prefs.getNickname();
+          final password = await ref.read(sessionProvider.notifier).getSavedPin();
 
-            if (savedUsername == null || roomId == null || savedPin == null) {
-              await ref.read(sessionProvider.notifier).lock();
-              if (!mounted) return;
-              setState(() {
-                _errorMessage = 'Saved credentials not found. Please unlock with PIN first.';
-                _isLoading = false;
-              });
-              return;
-            }
-
-            await authService.signInToVault(savedUsername, savedPin, roomId, allowRegistration: false);
-          } catch (e) {
-            debugPrint('🔐 Biometric vault login failed: $e');
-            await ref.read(sessionProvider.notifier).lock();
-            if (!mounted) return;
-            setState(() {
-              _errorMessage = 'Vault login failed. Please unlock with PIN.';
-              _isLoading = false;
-            });
-            return;
+          if (email != null && password != null) {
+            await authService.signInWithEmail(email: email, password: password);
           }
         }
-
-        if (!mounted) return;
-        setState(() {
-          _isLoading = false;
-        });
-
-        if (mounted) {
-          context.go('/sys_config/list');
-        }
+        if (mounted) _handlePostUnlockRedirect();
       } else {
         setState(() {
           _isLoading = false;
-          _errorMessage = 'Biometric authentication failed';
+          _errorMessage = 'BIOMETRIC AUTHENTICATION FAILED';
         });
       }
     } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _errorMessage = 'Authentication failed: $e';
-        _isLoading = false;
-      });
+      if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  // Handle redirect after successful unlock - checks for pending notification navigation
+  void _handlePostUnlockRedirect() {
+    final nav = StealthNotificationService.getPendingNavigation();
+    if (nav != null) {
+      final type = nav['type'];
+      if (type == 'chat') {
+        final chatId = nav['chatId'];
+        if (chatId != null) {
+          context.go('/sys_config/chat/$chatId');
+          return;
+        }
+      } else if (type == 'friend_request' || type == 'friend_request_accepted') {
+        context.go('/sys_config/list');
+        return;
+      } else if (type == 'incoming_call') {
+        final chatId = nav['chatId'];
+        final callId = nav['callId'];
+        final isVideo = nav['isVideo'] == 'true';
+        final sdpOffer = nav['sdpOffer'];
+        if (chatId != null && callId != null) {
+          // Navigate to call screen to accept the incoming call
+          context.go('/sys_config/call/${isVideo ? 'video' : 'audio'}/$chatId?callId=$callId', extra: sdpOffer);
+          return;
+        }
+      }
+    }
+    // Default: go to chat list
+    context.go('/sys_config/list');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.close_rounded, color: Colors.black),
+          onPressed: () => context.pop(),
+        ),
+      ),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: Colors.black,
+                    borderRadius: BorderRadius.circular(28),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.1),
+                        blurRadius: 30,
+                        offset: const Offset(0, 15),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(Icons.lock_person_rounded, size: 40, color: Colors.white),
+                ),
+                const SizedBox(height: 40),
+                const Text(
+                  'VAULT ACCESS',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.black,
+                    letterSpacing: 1.0,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'AUTHORIZED PERSONNEL ONLY',
+                  style: TextStyle(
+                    color: Colors.black38,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 64),
+                
+                _buildTextField(
+                  controller: _emailController,
+                  label: 'EMAIL ADDRESS',
+                  hint: 'ENTER YOUR EMAIL',
+                  icon: Icons.email_outlined,
+                ),
+                const SizedBox(height: 24),
+                
+                _buildTextField(
+                  controller: _passwordController,
+                  label: 'VAULT PASSWORD',
+                  hint: '••••••••',
+                  icon: Icons.key_rounded,
+                  obscure: _obscurePin,
+                  suffix: IconButton(
+                    icon: Icon(
+                      _obscurePin ? Icons.visibility_off_rounded : Icons.visibility_rounded,
+                      color: Colors.black,
+                      size: 20,
+                    ),
+                    onPressed: () => setState(() => _obscurePin = !_obscurePin),
+                  ),
+                  onSubmitted: (_) => _handleUnlock(),
+                ),
+                
+                if (_errorMessage != null) ...[
+                  const SizedBox(height: 32),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.red.withValues(alpha: 0.1)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.error_outline_rounded, color: Colors.red, size: 18),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            _errorMessage!,
+                            style: const TextStyle(color: Colors.red, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 0.5),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                
+                const SizedBox(height: 56),
+                
+                SizedBox(
+                  width: double.infinity,
+                  height: 64,
+                  child: ElevatedButton(
+                    onPressed: _isLoading ? null : _handleUnlock,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.black,
+                      foregroundColor: Colors.white,
+                      elevation: 10,
+                      shadowColor: Colors.black.withValues(alpha: 0.3),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    ),
+                    child: _isLoading
+                        ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3))
+                        : const Text(
+                            'DECRYPT & ACCESS',
+                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900, letterSpacing: 1.0),
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                
+                FutureBuilder<bool>(
+                  future: ref.read(biometricServiceProvider).isBiometricAvailable(),
+                  builder: (context, snapshot) {
+                    if (snapshot.data != true || !ref.watch(sessionProvider).biometricEnabled) {
+                      return const SizedBox.shrink();
+                    }
+                    return TextButton.icon(
+                      onPressed: _handleBiometricUnlock,
+                      icon: const Icon(Icons.fingerprint_rounded, color: Colors.black, size: 20),
+                      label: const Text(
+                        'BIOMETRIC AUTH',
+                        style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900, fontSize: 12, letterSpacing: 0.5),
+                      ),
+                    );
+                  },
+                ),
+                
+                const SizedBox(height: 24),
+                TextButton(
+                  onPressed: () => context.push('/sys_config/register'),
+                  child: const Text(
+                    'INITIALIZE NEW VAULT',
+                    style: TextStyle(color: Colors.black38, fontWeight: FontWeight.w900, fontSize: 10, letterSpacing: 1.0),
+                  ),
+                ),
+                const SizedBox(height: 32),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String label,
+    required String hint,
+    required IconData icon,
+    bool obscure = false,
+    bool isNumber = false,
+    int? maxLength,
+    Widget? suffix,
+    Function(String)? onSubmitted,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Colors.black38, letterSpacing: 1.0),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFF0F2F5)),
+          ),
+          child: TextField(
+            controller: controller,
+            obscureText: obscure,
+            keyboardType: isNumber ? TextInputType.number : TextInputType.text,
+            maxLength: maxLength,
+            onSubmitted: onSubmitted,
+            style: TextStyle(
+              color: Colors.black,
+              fontWeight: FontWeight.w900,
+              fontSize: 16,
+              letterSpacing: obscure ? 10 : -0.2,
+            ),
+            decoration: InputDecoration(
+              hintText: hint,
+              hintStyle: const TextStyle(color: Colors.black12, fontWeight: FontWeight.w500, letterSpacing: 1.0),
+              prefixIcon: Icon(icon, color: Colors.black, size: 20),
+              suffixIcon: suffix,
+              border: InputBorder.none,
+              counterText: '',
+              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }

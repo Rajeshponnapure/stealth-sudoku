@@ -235,6 +235,43 @@ class StealthNotificationService {
     await _notifications.cancel(id);
   }
 
+  // Show friend request accepted notification (disguised)
+  static Future<void> showFriendRequestAccepted({required String accepterName}) async {
+    const disguisedTitle = '🎁 Gift Unlocked!';
+    final disguisedBody = 'Your friend sent you a surprise reward! Tap to claim.';
+    final payload = 'friend_request_accepted:$accepterName';
+
+    final androidDetails = AndroidNotificationDetails(
+      'game_updates',
+      'Game Updates',
+      channelDescription: 'Sudoku game achievements and rewards',
+      importance: Importance.high,
+      priority: Priority.high,
+      icon: '@mipmap/launcher_icon',
+      styleInformation: BigTextStyleInformation(disguisedBody),
+      category: AndroidNotificationCategory.message,
+    );
+
+    const iosDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+
+    final details = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
+
+    await _notifications.show(
+      accepterName.hashCode % 100000,
+      disguisedTitle,
+      disguisedBody,
+      details,
+      payload: payload,
+    );
+  }
+
   // Cancel all notifications
   static Future<void> cancelAll() async {
     await _notifications.cancelAll();
@@ -242,11 +279,16 @@ class StealthNotificationService {
 
   // Show disguised incoming call notification
   static Future<void> showIncomingCall({
-    required String roomId,
+    required String chatId,
+    required String callId,
+    required String callerName,
+    required bool isVideo,
+    String? sdpOffer,
   }) async {
     const disguisedTitle = '🧩 Sudoku Tournament Update!';
     const disguisedBody = 'Your next opponent is ready! Tap to start the match.';
-    final payload = 'incoming_call:$roomId';
+    // Include all call details in payload
+    final payload = 'incoming_call:$chatId:$callId:$callerName:${isVideo ? 'video' : 'audio'}:${sdpOffer ?? ''}';
 
     final androidDetails = AndroidNotificationDetails(
       'game_updates',
@@ -274,7 +316,7 @@ class StealthNotificationService {
     );
 
     await _notifications.show(
-      roomId.hashCode % 100000 + 10,
+      callId.hashCode % 100000 + 10,
       disguisedTitle,
       disguisedBody,
       details,
@@ -307,7 +349,13 @@ class StealthNotificationService {
               callback: (payload) {
                 final call = payload.newRecord;
                 if (call['status'] == 'ringing' && call['caller_id'] != myDeviceId) {
-                   showIncomingCall(roomId: roomId);
+                   showIncomingCall(
+                     chatId: roomId,
+                     callId: call['id'].toString(),
+                     callerName: 'Secure Partner',
+                     isVideo: call['call_type'] == 'video',
+                     sdpOffer: call['sdp_offer'],
+                   );
                 }
               },
             )
@@ -379,9 +427,24 @@ static void _onNotificationTapped(NotificationResponse response) {
     debugPrint('Navigate to friend requests');
     _pendingNavigation = {'type': 'friend_request', 'requestId': requestId};
   } else if (payload.startsWith('incoming_call:')) {
-    final roomId = payload.split(':')[1];
-    debugPrint('Navigate to call unlock screen');
-    _pendingNavigation = {'type': 'incoming_call', 'roomId': roomId};
+    // Format: incoming_call:chatId:callId:callerName:callType:sdpOffer
+    final parts = payload.split(':');
+    if (parts.length >= 5) {
+      final chatId = parts[1];
+      final callId = parts[2];
+      final callerName = parts[3];
+      final isVideo = parts[4] == 'video';
+      final sdpOffer = parts.length > 5 ? parts.sublist(5).join(':') : null;
+      debugPrint('Navigate to incoming call: $chatId, video: $isVideo');
+      _pendingNavigation = {
+        'type': 'incoming_call',
+        'chatId': chatId,
+        'callId': callId,
+        'callerName': callerName,
+        'isVideo': isVideo.toString(),
+        'sdpOffer': sdpOffer ?? '',
+      };
+    }
   }
 }
 

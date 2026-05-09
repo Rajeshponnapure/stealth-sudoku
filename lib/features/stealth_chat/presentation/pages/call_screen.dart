@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/di/injection_container.dart';
 import '../../data/services/call_signaling_service.dart';
 
@@ -38,7 +39,10 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   bool _isScreenSharing = false;
   bool _isConnecting = true;
   bool _isConnected = false;
+  bool _isFrontCamera = true; // Track camera facing
+  String _audioOutput = 'speaker'; // 'speaker', 'earpiece', 'headset', 'bluetooth'
   Duration _callDuration = Duration.zero;
+  List<MediaDeviceInfo> _audioOutputs = [];
 
   @override
   void initState() {
@@ -51,6 +55,9 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     
     // ✅ Initialize speakerphone on start
     Helper.setSpeakerphoneOn(_isSpeaker);
+    
+    // ✅ Load available audio output devices
+    _getAudioOutputs();
     
     if (widget.incomingCallId != null && widget.incomingSdpOffer != null) {
       _initRenderers().then((_) => _answerCall());
@@ -93,9 +100,27 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   Future<void> _startCall() async {
     try {
       final myDeviceId = ref.read(deviceIdProvider);
-      // In a shared room, we can broadcast the call even if they haven't sent a message yet.
-      // ALWAYS broadcast to ensure any device logged into the room gets it.
-      final targetDeviceId = 'broadcast';
+      final myUserId = Supabase.instance.client.auth.currentUser?.id;
+      if (myUserId == null) {
+        throw Exception('Not authenticated');
+      }
+
+      // Resolve the other participant (1:1 chat) from chat_sessions.participant_ids
+      final session = await Supabase.instance.client
+          .from('chat_sessions')
+          .select('participant_ids')
+          .eq('id', widget.chatId)
+          .maybeSingle();
+
+      final participantIds = session?['participant_ids'] as List?;
+      final participants = participantIds?.map((e) => e.toString()).toList() ?? const <String>[];
+      final calleeUserId = participants.firstWhere(
+        (id) => id != myUserId,
+        orElse: () => '',
+      );
+      if (calleeUserId.isEmpty) {
+        throw Exception('Could not resolve call recipient for this chat');
+      }
 
       // ── Get mic / camera stream ──
       final Map<String, dynamic> mediaConstraints = {
@@ -132,7 +157,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
 
       // ── Initiate Signaling ──
       await _signalingService.initiateCall(
-        calleeDeviceId: targetDeviceId,
+        calleeUserId: calleeUserId,
         chatId: widget.chatId,
         isVideo: widget.isVideo,
         peerConnection: _peerConnection!,
@@ -241,6 +266,169 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   void _toggleCamera() {
     _localStream?.getVideoTracks().forEach((t) => t.enabled = _cameraOff);
     setState(() => _cameraOff = !_cameraOff);
+  }
+
+  // Flip between front and back camera
+  Future<void> _flipCamera() async {
+    if (!widget.isVideo || _localStream == null) return;
+    
+    try {
+      // Stop current video track
+      _localStream?.getVideoTracks().forEach((track) => track.stop());
+      
+      // Toggle camera facing
+      _isFrontCamera = !_isFrontCamera;
+      
+      // Get new stream with flipped camera
+      final newStream = await navigator.mediaDevices.getUserMedia({
+        'audio': true,
+        'video': {
+          'facingMode': _isFrontCamera ? 'user' : 'environment',
+          'width': 640,
+          'height': 480,
+        },
+      });
+      
+      // Get new video track
+      final newVideoTrack = newStream.getVideoTracks().first;
+      
+      // Replace track in peer connection
+      final senders = await _peerConnection?.getSenders();
+      final videoSender = senders?.firstWhere(
+        (s) => s.track?.kind == 'video',
+        orElse: () => senders.first,
+      );
+      await videoSender?.replaceTrack(newVideoTrack);
+      
+      // Update local renderer
+      if (mounted) {
+        setState(() {
+          _localStream = newStream;
+          _localRenderer.srcObject = newStream;
+        });
+      }
+    } catch (e) {
+      debugPrint('Camera flip error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Camera flip failed: $e')),
+        );
+      }
+    }
+  }
+
+  // Get available audio output devices
+  Future<void> _getAudioOutputs() async {
+    try {
+      final devices = await navigator.mediaDevices.enumerateDevices();
+      _audioOutputs = devices.where((d) => d.kind == 'audiooutput').toList();
+      debugPrint('Found ${_audioOutputs.length} audio output devices');
+    } catch (e) {
+      debugPrint('Error getting audio outputs: $e');
+    }
+  }
+
+  // Show audio output selection dialog
+  void _showAudioOutputSelector() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.black87,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text(
+                'Select Audio Output',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            _buildAudioOption(
+              icon: Icons.volume_up,
+              label: 'Speaker',
+              value: 'speaker',
+              isSelected: _audioOutput == 'speaker',
+            ),
+            _buildAudioOption(
+              icon: Icons.phone,
+              label: 'Earpiece',
+              value: 'earpiece',
+              isSelected: _audioOutput == 'earpiece',
+            ),
+            _buildAudioOption(
+              icon: Icons.headphones,
+              label: 'Headphones',
+              value: 'headset',
+              isSelected: _audioOutput == 'headset',
+            ),
+            _buildAudioOption(
+              icon: Icons.bluetooth_audio,
+              label: 'Bluetooth',
+              value: 'bluetooth',
+              isSelected: _audioOutput == 'bluetooth',
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAudioOption({
+    required IconData icon,
+    required String label,
+    required String value,
+    required bool isSelected,
+  }) {
+    return ListTile(
+      leading: Icon(icon, color: isSelected ? Colors.blue : Colors.white70),
+      title: Text(
+        label,
+        style: TextStyle(
+          color: isSelected ? Colors.blue : Colors.white,
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+        ),
+      ),
+      trailing: isSelected
+          ? const Icon(Icons.check_circle, color: Colors.blue)
+          : null,
+      onTap: () {
+        _setAudioOutput(value);
+        Navigator.pop(context);
+      },
+    );
+  }
+
+  // Set audio output route
+  Future<void> _setAudioOutput(String output) async {
+    try {
+      _audioOutput = output;
+      
+      switch (output) {
+        case 'speaker':
+          await Helper.setSpeakerphoneOn(true);
+          break;
+        case 'earpiece':
+          await Helper.setSpeakerphoneOn(false);
+          break;
+        case 'headset':
+        case 'bluetooth':
+          // For headset/Bluetooth, try to set specific device if available
+          await Helper.setSpeakerphoneOn(false);
+          // Note: Specific device selection requires platform-specific code
+          break;
+      }
+      
+      setState(() {});
+      debugPrint('Audio output set to: $output');
+    } catch (e) {
+      debugPrint('Error setting audio output: $e');
+    }
   }
 
   Future<void> _toggleScreenShare() async {
@@ -573,8 +761,10 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                     end: Alignment.bottomCenter,
                   ),
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                child: Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 16,
+                  runSpacing: 12,
                   children: [
                     // Mute
                     _buildControlBtn(
@@ -593,6 +783,14 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                         onTap: _toggleCamera,
                         isActive: _cameraOff,
                       ),
+                    // Camera flip (video only)
+                    if (widget.isVideo)
+                      _buildControlBtn(
+                        icon: _isFrontCamera ? Icons.camera_front : Icons.camera_rear,
+                        label: 'Flip',
+                        onTap: _flipCamera,
+                        isActive: false,
+                      ),
                     // Screen share (video only)
                     if (widget.isVideo)
                       _buildControlBtn(
@@ -604,14 +802,25 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                         isActive: _isScreenSharing,
                         activeColor: Colors.blue,
                       ),
-                    // Speaker
+                    // Audio Output Selector (long press for options)
                     _buildControlBtn(
-                      icon: _isSpeaker
+                      icon: _audioOutput == 'speaker'
                           ? Icons.volume_up
-                          : Icons.volume_off,
-                      label: 'Speaker',
+                          : _audioOutput == 'earpiece'
+                              ? Icons.phone
+                              : _audioOutput == 'bluetooth'
+                                  ? Icons.bluetooth_audio
+                                  : Icons.headphones,
+                      label: _audioOutput == 'speaker'
+                          ? 'Speaker'
+                          : _audioOutput == 'earpiece'
+                              ? 'Earpiece'
+                              : _audioOutput == 'bluetooth'
+                                  ? 'Bluetooth'
+                                  : 'Headset',
                       onTap: _toggleSpeaker,
-                      isActive: !_isSpeaker,
+                      onLongPress: _showAudioOutputSelector,
+                      isActive: _audioOutput != 'speaker',
                     ),
                     // End call
                     _buildControlBtn(
@@ -634,12 +843,14 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     required IconData icon,
     required String label,
     required VoidCallback onTap,
+    VoidCallback? onLongPress,
     bool isActive = false,
     Color? bgColor,
     Color activeColor = Colors.white,
   }) {
     return GestureDetector(
       onTap: onTap,
+      onLongPress: onLongPress,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [

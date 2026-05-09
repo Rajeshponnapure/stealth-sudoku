@@ -26,7 +26,7 @@ class CallSignalingService {
 
   // ── CALLER: Start a call ──
   Future<String> initiateCall({
-    required String calleeDeviceId,
+    required String calleeUserId,
     required String chatId,
     required bool isVideo,
     required RTCPeerConnection peerConnection,
@@ -45,14 +45,15 @@ class CallSignalingService {
     await _supabase.from('calls').insert({
       'id': callId,
       'chat_id': chatId,
-      'caller_id': myDeviceId, // Store Device ID
-      'callee_id': calleeDeviceId, // Target Device ID
+      // NOTE: calls.caller_id / calls.callee_id are UUIDs (auth.users ids)
+      'caller_id': currentUserId,
+      'callee_id': calleeUserId,
       'call_type': isVideo ? 'video' : 'audio',
       'status': 'ringing',
       'sdp_offer': offer.sdp,
     });
 
-    _subscribeToCallUpdates(callId, myDeviceId);
+    _subscribeToCallUpdates(callId);
     _subscribeToIceCandidates(callId, myDeviceId);
 
     peerConnection.onIceCandidate = (candidate) {
@@ -92,7 +93,7 @@ class CallSignalingService {
     }).eq('id', callId);
 
     _subscribeToIceCandidates(callId, myDeviceId);
-    _subscribeToCallUpdates(callId, myDeviceId);
+    _subscribeToCallUpdates(callId);
 
     peerConnection.onIceCandidate = (candidate) {
       if (candidate.candidate != null) {
@@ -125,10 +126,10 @@ class CallSignalingService {
     _cleanup();
   }
 
-  // ── Listen for incoming calls (filtered by deviceId) ──
-  void listenForIncomingCalls(String myDeviceId) {
+  // ── Listen for incoming calls (filtered by current user id) ──
+  void listenForIncomingCalls(String myUserId, {required String myDeviceId}) {
     _incomingChannel = _supabase
-        .channel('incoming_calls_$myDeviceId')
+        .channel('incoming_calls_$myUserId')
         .onPostgresChanges(
           event: PostgresChangeEvent.insert,
           schema: 'public',
@@ -136,12 +137,12 @@ class CallSignalingService {
           filter: PostgresChangeFilter(
             type: PostgresChangeFilterType.eq,
             column: 'callee_id',
-            value: 'broadcast', // Listen to all broadcasted room calls
+            value: myUserId,
           ),
           callback: (payload) async {
             final call = payload.newRecord;
             // Ignore calls that I initiated!
-            if (call['status'] == 'ringing' && call['caller_id'] != myDeviceId) {
+            if (call['status'] == 'ringing' && call['caller_id'] != myUserId) {
               onIncomingCall?.call(
                 call['id'],
                 call['caller_id'],
@@ -160,7 +161,7 @@ class CallSignalingService {
   }
 
   // ── PRIVATE: Watch for call status updates ──
-  void _subscribeToCallUpdates(String callId, String myDeviceId) {
+  void _subscribeToCallUpdates(String callId) {
     _callChannel = _supabase
         .channel('call_updates_$callId')
         .onPostgresChanges(

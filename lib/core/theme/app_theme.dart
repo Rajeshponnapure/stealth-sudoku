@@ -18,14 +18,28 @@ class ThemeModeNotifier extends StateNotifier<ThemeMode> {
   }
 
   Future<void> _loadThemeMode() async {
-    final isDark = await _prefs.isDarkMode();
-    state = isDark ? ThemeMode.dark : ThemeMode.light;
+    final savedMode = await _prefs.getThemeMode();
+    state = savedMode;
   }
 
   Future<void> toggleTheme() async {
-    final isDark = state == ThemeMode.dark;
-    state = isDark ? ThemeMode.light : ThemeMode.dark;
-    await _prefs.setDarkMode(!isDark);
+    // Cycle: system -> light -> dark -> system
+    if (state == ThemeMode.system) {
+      state = ThemeMode.light;
+      await _prefs.setThemeMode('light');
+    } else if (state == ThemeMode.light) {
+      state = ThemeMode.dark;
+      await _prefs.setThemeMode('dark');
+    } else {
+      state = ThemeMode.system;
+      await _prefs.setThemeMode('system');
+    }
+  }
+
+  Future<void> setThemeMode(ThemeMode mode) async {
+    state = mode;
+    final modeString = mode == ThemeMode.system ? 'system' : (mode == ThemeMode.dark ? 'dark' : 'light');
+    await _prefs.setThemeMode(modeString);
   }
 }
 

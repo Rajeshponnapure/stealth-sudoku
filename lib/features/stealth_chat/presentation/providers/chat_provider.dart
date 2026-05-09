@@ -230,9 +230,12 @@ class ChatNotifier extends StateNotifier<ChatState> {
     _messageSubscription = _messageService.subscribeToMessages(chatId, currentUserId: currentUserId).listen(
       (newMessage) {
         if (!state.messages.any((m) => m.id == newMessage.id)) {
+          final updated = [...state.messages, newMessage]..sort((a, b) => a.timestamp.compareTo(b.timestamp));
           state = state.copyWith(
-            messages: [...state.messages, newMessage],
+            messages: updated,
           );
+          // Keep chat list ordering / preview up-to-date for the receiver too.
+          _ref.read(chatSessionsProvider.notifier).loadSessions();
         }
       },
       onError: (error) {

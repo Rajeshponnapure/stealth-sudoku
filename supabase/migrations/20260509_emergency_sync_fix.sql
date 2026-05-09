@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
     username text UNIQUE,
     display_name text,
+    email text,
     room_id text,
     secure_pin text,
     is_online boolean DEFAULT false,

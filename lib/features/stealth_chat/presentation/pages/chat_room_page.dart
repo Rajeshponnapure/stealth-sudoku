@@ -6,7 +6,6 @@ import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
-import '../../../../core/theme/app_theme.dart';
 import '../../../../core/security/session_manager.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/entities/chat_session.dart';
@@ -173,125 +172,99 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final chatState = ref.watch(chatProvider(widget.chatId));
-    final currentDeviceId = ref.watch(deviceIdProvider);
-
+    final currentUserId = ref.watch(currentUserIdProvider);
 
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        surfaceTintColor: Colors.white,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.black),
           onPressed: () => context.pop(),
         ),
         title: Row(
-            children: [
-              CircleAvatar(
-                radius: 18,
-                backgroundColor:
-                    isDark ? AppTheme.primaryDark : AppTheme.primaryLight,
-                child: const Icon(Icons.lock, color: Colors.white, size: 20),
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: Colors.black,
+                borderRadius: BorderRadius.circular(12),
               ),
-              const SizedBox(width: 12),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Secure Room',
-                      style: TextStyle(fontSize: 16),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    Text(
-                      'Encrypted Channel',
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
+              child: const Icon(Icons.shield_rounded, color: Colors.white, size: 20),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Secure Room',
+                    style: TextStyle(color: Colors.black, fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: -0.2),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    'END-TO-END ENCRYPTED',
+                    style: TextStyle(fontSize: 9, color: Colors.black38, fontWeight: FontWeight.w900, letterSpacing: 1.0),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
               ),
-            ],
-          ),
-          // ── ✅ FIXED: Call buttons moved INSIDE AppBar ──
-          actions: [
-            // Audio Call
-            IconButton(
-            icon: const Icon(Icons.call),
+            ),
+          ],
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.call_outlined, color: Colors.black),
             onPressed: () => _startCall(isVideo: false),
             tooltip: 'Audio Call',
           ),
-          // Video Call
           IconButton(
-            icon: const Icon(Icons.videocam),
+            icon: const Icon(Icons.videocam_outlined, color: Colors.black),
             onPressed: () => _startCall(isVideo: true),
             tooltip: 'Video Call',
           ),
-          // More Menu (Logout + Panic)
           PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert),
+            icon: const Icon(Icons.more_vert_rounded, color: Colors.black),
             onSelected: (value) {
               if (value == 'logout') _handleLogout();
               if (value == 'panic') _showPanicDialog(context, ref);
               if (value == 'options') _showChatOptions();
             },
             itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: 'logout',
-                child: Row(
-                  children: [
-                    Icon(Icons.logout, size: 20),
-                    SizedBox(width: 12),
-                    Text('Close Session'),
-                  ],
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'panic',
-                child: Row(
-                  children: [
-                    Icon(Icons.emergency, size: 20, color: Colors.red),
-                    SizedBox(width: 12),
-                    Text('Panic Lock', style: TextStyle(color: Colors.red)),
-                  ],
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'options',
-                child: Row(
-                  children: [
-                    Icon(Icons.settings, size: 20),
-                    SizedBox(width: 12),
-                    Text('Chat Options'),
-                  ],
-                ),
-              ),
+              _buildPopupItem('options', Icons.settings_outlined, 'Room Settings'),
+              const PopupMenuDivider(),
+              _buildPopupItem('logout', Icons.logout_rounded, 'Close Session'),
+              _buildPopupItem('panic', Icons.emergency_rounded, 'Panic Lock', isDestructive: true),
             ],
           ),
         ],
       ),
       body: Column(
         children: [
-          // Encryption Banner
+          // Subtle Encryption Banner
           Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            color: Colors.amber.withValues(alpha: 0.1),
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            decoration: const BoxDecoration(
+              color: Color(0xFFF8F9FA),
+              border: Border(bottom: BorderSide(color: Color(0xFFF0F2F5))),
+            ),
             child: Row(
-              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(
-                  Icons.lock,
-                  size: 14,
-                  color: isDark ? Colors.amber[200] : Colors.amber[900],
-                ),
+                const Icon(Icons.lock_rounded, size: 10, color: Colors.black26),
                 const SizedBox(width: 8),
                 Text(
-                  'Messages are end-to-end encrypted',
+                  'MESSAGES ARE DECRYPTED LOCALLY ON THIS DEVICE',
                   style: TextStyle(
-                    fontSize: 11,
-                    color: isDark
-                        ? Colors.amber[200]
-                        : Colors.amber[900],
+                    fontSize: 9,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.5,
+                    color: Colors.black.withValues(alpha: 0.3),
                   ),
                 ),
               ],
@@ -300,85 +273,33 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
           // Messages List
           Expanded(
             child: chatState.isLoading
-                ? const Center(child: CircularProgressIndicator())
+                ? const Center(child: CircularProgressIndicator(color: Colors.black))
                 : chatState.error != null
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.error_outline,
-                                size: 64, color: Colors.red),
-                            const SizedBox(height: 16),
-                            Text('Error: ${chatState.error}'),
-                            const SizedBox(height: 16),
-                            ElevatedButton(
-                              onPressed: () => ref
-                                  .read(chatProvider(widget.chatId)
-                                      .notifier)
-                                  .loadMessages(),
-                              child: const Text('Retry'),
-                            ),
-                          ],
-                        ),
-                      )
+                    ? _buildErrorState(chatState.error!)
                     : chatState.messages.isEmpty
-                        ? Center(
-                            child: Column(
-                              mainAxisAlignment:
-                                  MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.chat_bubble_outline,
-                                    size: 80, color: Colors.grey[400]),
-                                const SizedBox(height: 16),
-                                Text(
-                                  'No messages yet',
-                                  style: TextStyle(
-                                      fontSize: 18,
-                                      color: Colors.grey[600]),
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  'Send a message to start the conversation',
-                                  style: TextStyle(
-                                      fontSize: 14,
-                                      color: Colors.grey[500]),
-                                ),
-                              ],
-                            ),
-                          )
+                        ? _buildEmptyState()
                         : Stack(
                             children: [
                               ListView.builder(
                                 controller: _scrollController,
-                                padding: const EdgeInsets.all(16),
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
                                 itemCount: chatState.messages.length,
                                 itemBuilder: (context, index) {
-                                  final message =
-                                      chatState.messages[index];
-                                  final isMe =
-                                    (message.senderDeviceId ?? message.senderId) == currentDeviceId;
+                                  final message = chatState.messages[index];
+                                  final isMe = message.senderId == currentUserId;
                                   bool showDateSeparator = index == 0 ||
                                       !_isSameDay(
                                         message.timestamp,
-                                        chatState
-                                            .messages[index - 1]
-                                            .timestamp,
+                                        chatState.messages[index - 1].timestamp,
                                       );
                                   return Column(
                                     children: [
-                                      if (showDateSeparator)
-                                        _buildDateSeparator(
-                                            message.timestamp),
+                                      if (showDateSeparator) _buildDateSeparator(message.timestamp),
                                       MessageBubble(
                                         message: message,
                                         isMe: isMe,
-                                        onDelete: () =>
-                                            _deleteMessage(message.id),
-                                        onRetry: message.status ==
-                                                MessageStatus.failed
-                                            ? () =>
-                                                _retryMessage(message)
-                                            : null,
+                                        onDelete: () => _deleteMessage(message.id),
+                                        onRetry: message.status == MessageStatus.failed ? () => _retryMessage(message) : null,
                                       ),
                                     ],
                                   );
@@ -390,12 +311,8 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
                                   right: 16,
                                   child: FloatingActionButton.small(
                                     onPressed: _scrollToBottom,
-                                    backgroundColor: isDark
-                                        ? AppTheme.primaryDark
-                                        : AppTheme.primaryLight,
-                                    child: const Icon(
-                                        Icons.arrow_downward,
-                                        color: Colors.white),
+                                    backgroundColor: Colors.black,
+                                    child: const Icon(Icons.arrow_downward_rounded, color: Colors.white),
                                   ),
                                 ),
                             ],
@@ -406,11 +323,58 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
             controller: _messageController,
             onSend: _sendMessage,
             onAttachment: _showAttachmentOptions,
-            onTyping: (isTyping) {
-              ref
-                  .read(chatProvider(widget.chatId).notifier)
-                  .setTyping(isTyping);
-            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  PopupMenuItem<String> _buildPopupItem(String value, IconData icon, String label, {bool isDestructive = false}) {
+    return PopupMenuItem(
+      value: value,
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: isDestructive ? Colors.red : Colors.black87),
+          const SizedBox(width: 12),
+          Text(label, style: TextStyle(color: isDestructive ? Colors.red : Colors.black87, fontWeight: FontWeight.w500)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorState(String error) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.error_outline_rounded, size: 48, color: Colors.red),
+          const SizedBox(height: 16),
+          Text('Protocol Error: $error', style: const TextStyle(color: Colors.black54)),
+          const SizedBox(height: 16),
+          TextButton(
+            onPressed: () => ref.read(chatProvider(widget.chatId).notifier).loadMessages(),
+            child: const Text('RETRY SYNC', style: TextStyle(fontWeight: FontWeight.w900, color: Colors.black)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.chat_bubble_outline_rounded, size: 64, color: Colors.black12),
+          const SizedBox(height: 24),
+          const Text(
+            'Secure Session Initialized',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Start your private communication.',
+            style: TextStyle(color: Colors.black38, fontSize: 14),
           ),
         ],
       ),
@@ -470,21 +434,11 @@ void _startCall({required bool isVideo}) {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
     final currentUserId = ref.read(currentUserIdProvider);
-    final currentDeviceId = ref.read(deviceIdProvider);
     if (currentUserId == null) return;
-    final sessions = ref.read(chatSessionsProvider);
-    final session = sessions.firstWhere((s) => s.id == widget.chatId,
-        orElse: () => ChatSession(
-              id: widget.chatId,
-              peerId: '',
-              peerName: 'Secure Room',
-              createdAt: DateTime.now(),
-            ));
+    
     ref.read(chatProvider(widget.chatId).notifier).sendMessage(
           content: text,
           senderId: currentUserId,
-          senderDeviceId: currentDeviceId,
-          receiverId: session.peerId,
           type: MessageType.text,
         );
     _messageController.clear();
@@ -531,15 +485,6 @@ void _startCall({required bool isVideo}) {
                 _pickFile();
               },
             ),
-            // ── Self-Destruct ──
-            ListTile(
-              leading: const Icon(Icons.timer, color: Colors.red),
-              title: const Text('Self-Destruct Message'),
-              onTap: () {
-                Navigator.pop(context);
-                _showSelfDestructDialog();
-              },
-            ),
           ],
         ),
       ),
@@ -553,26 +498,14 @@ void _startCall({required bool isVideo}) {
       final image = await picker.pickImage(source: source);
       if (image != null) {
         final currentUserId = ref.read(currentUserIdProvider);
-        final currentDeviceId = ref.read(deviceIdProvider);
         if (currentUserId == null) return;
-        final sessions = ref.read(chatSessionsProvider);
-        final session = sessions.firstWhere((s) => s.id == widget.chatId,
-            orElse: () => ChatSession(
-                  id: widget.chatId,
-                  peerId: '',
-                  peerName: 'Secure Room',
-                  createdAt: DateTime.now(),
-                ));
-        final file = File(image.path);
+        
         ref.read(chatProvider(widget.chatId).notifier).sendMessage(
               content: '[Image]',
               senderId: currentUserId,
-              senderDeviceId: currentDeviceId,
-              receiverId: session.peerId,
               type: MessageType.image,
               filePath: image.path,
               fileName: image.name,
-              fileSize: await file.length(),
             );
       }
     } catch (e) {
@@ -589,100 +522,16 @@ void _startCall({required bool isVideo}) {
     if (result != null && result.files.isNotEmpty) {
       final file = result.files.first;
       final currentUserId = ref.read(currentUserIdProvider);
-      final currentDeviceId = ref.read(deviceIdProvider);
       if (currentUserId == null) return;
-      final sessions = ref.read(chatSessionsProvider);
-      final session = sessions.firstWhere((s) => s.id == widget.chatId,
-          orElse: () => ChatSession(
-                id: widget.chatId,
-                peerId: '',
-                peerName: 'Secure Room',
-                createdAt: DateTime.now(),
-              ));
+
       ref.read(chatProvider(widget.chatId).notifier).sendMessage(
             content: '[File: ${file.name}]',
-          senderId: currentUserId,
-          senderDeviceId: currentDeviceId,
-            receiverId: session.peerId,
+            senderId: currentUserId,
             type: MessageType.file,
             filePath: file.path,
             fileName: file.name,
-            fileSize: file.size,
           );
     }
-  }
-
-  void _showSelfDestructDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Self-Destruct Message'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Message will be automatically deleted after:'),
-            const SizedBox(height: 16),
-            ListTile(
-              title: const Text('30 seconds'),
-              onTap: () {
-                Navigator.pop(context);
-                _sendSelfDestructMessage(
-                    const Duration(seconds: 30));
-              },
-            ),
-            ListTile(
-              title: const Text('1 minute'),
-              onTap: () {
-                Navigator.pop(context);
-                _sendSelfDestructMessage(
-                    const Duration(minutes: 1));
-              },
-            ),
-            ListTile(
-              title: const Text('5 minutes'),
-              onTap: () {
-                Navigator.pop(context);
-                _sendSelfDestructMessage(
-                    const Duration(minutes: 5));
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _sendSelfDestructMessage(Duration duration) {
-    final text = _messageController.text.trim();
-    if (text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content:
-                Text('Type a message first before setting self-destruct')),
-      );
-      return;
-    }
-    final currentUserId = ref.read(currentUserIdProvider);
-    final currentDeviceId = ref.read(deviceIdProvider);
-    if (currentUserId == null) return;
-    final sessions = ref.read(chatSessionsProvider);
-    final session = sessions.firstWhere((s) => s.id == widget.chatId,
-        orElse: () => ChatSession(
-              id: widget.chatId,
-              peerId: '',
-              peerName: 'Secure Room',
-              createdAt: DateTime.now(),
-            ));
-    ref.read(chatProvider(widget.chatId).notifier).sendMessage(
-          content: text,
-          senderId: currentUserId,
-          senderDeviceId: currentDeviceId,
-          receiverId: session.peerId,
-          type: MessageType.text,
-          isSelfDestruct: true,
-          destructAfter: duration,
-        );
-    _messageController.clear();
   }
 
   void _deleteMessage(String messageId) {
@@ -716,9 +565,9 @@ void _startCall({required bool isVideo}) {
     ref.read(chatProvider(widget.chatId).notifier).sendMessage(
           content: message.content,
           senderId: message.senderId,
-          senderDeviceId: message.senderDeviceId ?? ref.read(deviceIdProvider),
-          receiverId: message.receiverId,
           type: message.type,
+          filePath: message.filePath,
+          fileName: message.fileName,
         );
   }
 

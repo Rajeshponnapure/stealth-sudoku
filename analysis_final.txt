@@ -1,0 +1,6 @@
+[warning] The declaration '_startChat' isn't referenced (C:\Users\saimo\OneDrive\Desktop\projects\stealth_sudoku\lib\features\stealth_chat\presentation\pages\chat_list_page.dart:128:16)
+[warning] The declaration '_buildSecurityItem' isn't referenced (C:\Users\saimo\OneDrive\Desktop\projects\stealth_sudoku\lib\features\stealth_chat\presentation\pages\chat_profile_page.dart:447:10)
+[warning] The declaration '_buildInfoCard' isn't referenced (C:\Users\saimo\OneDrive\Desktop\projects\stealth_sudoku\lib\features\stealth_chat\presentation\pages\chat_profile_page.dart:594:10)
+[info] Unnecessary 'const' keyword (C:\Users\saimo\OneDrive\Desktop\projects\stealth_sudoku\lib\features\stealth_chat\presentation\pages\chat_profile_page.dart:330:23)
+[info] Don't use 'BuildContext's across async gaps (C:\Users\saimo\OneDrive\Desktop\projects\stealth_sudoku\lib\features\stealth_chat\presentation\pages\friends_page.dart:75:7)
+[warning] The value of the local variable 'deviceId' isn't used (C:\Users\saimo\OneDrive\Desktop\projects\stealth_sudoku\lib\features\stealth_chat\presentation\pages\group_chat_page.dart:204:21)

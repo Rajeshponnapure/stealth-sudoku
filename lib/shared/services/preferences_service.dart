@@ -1,7 +1,6 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
-import 'package:flutter/foundation.dart'; // ✅ add this
-
+import 'package:flutter/material.dart';
 
 class PreferencesService {
   final SharedPreferences _prefs;
@@ -180,5 +179,23 @@ class PreferencesService {
   // Clear all data
   Future<void> clearAll() async {
     await _prefs.clear();
+  }
+
+  // Theme Mode (system/light/dark)
+  Future<ThemeMode> getThemeMode() async {
+    final modeString = _prefs.getString('theme_mode') ?? 'system';
+    switch (modeString) {
+      case 'light':
+        return ThemeMode.light;
+      case 'dark':
+        return ThemeMode.dark;
+      case 'system':
+      default:
+        return ThemeMode.system;
+    }
+  }
+
+  Future<void> setThemeMode(String mode) async {
+    await _prefs.setString('theme_mode', mode);
   }
 }

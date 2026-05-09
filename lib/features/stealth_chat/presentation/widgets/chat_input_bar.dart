@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_sound/flutter_sound.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
-import '../../../../core/theme/app_theme.dart';
 import 'emoji_picker.dart';
 
 class ChatInputBar extends StatefulWidget {
@@ -187,30 +186,27 @@ class _ChatInputBarState extends State<ChatInputBar>
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // ── Input Row ──
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
           decoration: BoxDecoration(
-            color: isDark ? Colors.grey[900] : Colors.grey[100],
+            color: Colors.white,
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 4,
-                offset: const Offset(0, -2),
+                blurRadius: 15,
+                offset: const Offset(0, -5),
               ),
             ],
           ),
           child: SafeArea(
             child: _isRecording
-                ? _buildRecordingRow(isDark)
-                : _buildNormalRow(isDark),
+                ? _buildRecordingRow()
+                : _buildNormalRow(),
           ),
         ),
-        // ── Emoji Picker ──
         if (_showEmojiPicker)
           EmojiPickerWidget(
             controller: widget.controller,
@@ -219,29 +215,33 @@ class _ChatInputBarState extends State<ChatInputBar>
     );
   }
 
-  Widget _buildNormalRow(bool isDark) {
+  Widget _buildNormalRow() {
     return Row(
       children: [
         // Attachment button
         IconButton(
-          icon: const Icon(Icons.attach_file),
+          icon: const Icon(Icons.add_rounded, color: Colors.black),
           onPressed: widget.onAttachment,
-          color: isDark ? Colors.grey[400] : Colors.grey[600],
+          padding: EdgeInsets.zero,
         ),
+        const SizedBox(width: 4),
         // Text field
         Expanded(
           child: Container(
             decoration: BoxDecoration(
-              color: isDark ? Colors.grey[800] : Colors.white,
+              color: const Color(0xFFF0F2F5),
               borderRadius: BorderRadius.circular(24),
             ),
             child: TextField(
               controller: widget.controller,
               focusNode: _focusNode,
-              maxLines: null,
+              maxLines: 5,
+              minLines: 1,
               textInputAction: TextInputAction.newline,
+              style: const TextStyle(color: Colors.black, fontSize: 15, fontWeight: FontWeight.w500),
               decoration: InputDecoration(
-                hintText: 'Type a message...',
+                hintText: 'Secure message...',
+                hintStyle: const TextStyle(color: Colors.black26),
                 border: InputBorder.none,
                 contentPadding: const EdgeInsets.symmetric(
                   horizontal: 16,
@@ -249,14 +249,11 @@ class _ChatInputBarState extends State<ChatInputBar>
                 ),
                 suffixIcon: IconButton(
                   icon: Icon(
-                    _showEmojiPicker
-                        ? Icons.keyboard
-                        : Icons.emoji_emotions_outlined,
+                    _showEmojiPicker ? Icons.keyboard_rounded : Icons.emoji_emotions_outlined,
+                    color: Colors.black38,
+                    size: 20,
                   ),
                   onPressed: _toggleEmojiPicker,
-                  color: _showEmojiPicker
-                      ? Theme.of(context).primaryColor
-                      : Colors.grey[600],
                 ),
               ),
               onSubmitted: (_) {
@@ -265,7 +262,7 @@ class _ChatInputBarState extends State<ChatInputBar>
             ),
           ),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 12),
         // Send or Mic button
         GestureDetector(
           onLongPressStart: (!_isTyping && _voiceSupported)
@@ -279,24 +276,23 @@ class _ChatInputBarState extends State<ChatInputBar>
               : (!_voiceSupported
                   ? () => ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                          content:
-                              Text('Voice messages work on Android & iOS'),
+                          content: Text('Voice messages work on Android & iOS'),
                         ),
                       )
                   : null),
           child: Container(
             width: 48,
             height: 48,
-            decoration: BoxDecoration(
-              color: isDark ? AppTheme.primaryDark : AppTheme.primaryLight,
+            decoration: const BoxDecoration(
+              color: Colors.black,
               shape: BoxShape.circle,
             ),
             child: Icon(
               _isTyping
-                  ? Icons.send
-                  : (_voiceSupported ? Icons.mic : Icons.mic_off),
+                  ? Icons.arrow_upward_rounded
+                  : (_voiceSupported ? Icons.mic_none_rounded : Icons.mic_off_rounded),
               color: Colors.white,
-              size: 24,
+              size: 22,
             ),
           ),
         ),
@@ -304,12 +300,12 @@ class _ChatInputBarState extends State<ChatInputBar>
     );
   }
 
-  Widget _buildRecordingRow(bool isDark) {
+  Widget _buildRecordingRow() {
     return Row(
       children: [
         // Cancel
         IconButton(
-          icon: const Icon(Icons.delete_outline, color: Colors.red),
+          icon: const Icon(Icons.delete_outline_rounded, color: Colors.red),
           onPressed: () => _stopRecording(send: false),
         ),
         // Indicator + timer
@@ -318,21 +314,18 @@ class _ChatInputBarState extends State<ChatInputBar>
             children: [
               FadeTransition(
                 opacity: _recordingAnimation,
-                child:
-                    const Icon(Icons.circle, color: Colors.red, size: 12),
+                child: const Icon(Icons.circle, color: Colors.red, size: 8),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 12),
               Text(
                 _formatTime(_recordingSeconds),
-                style: const TextStyle(
-                    fontWeight: FontWeight.bold, fontSize: 16),
+                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: Colors.black, letterSpacing: 1.0),
               ),
-              const SizedBox(width: 8),
-              Expanded(
+              const SizedBox(width: 12),
+              const Expanded(
                 child: Text(
-                  'Recording... tap ✓ to send',
-                  style:
-                      TextStyle(color: Colors.grey[500], fontSize: 12),
+                  'ENCRYPTING AUDIO...',
+                  style: TextStyle(color: Colors.black38, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.0),
                 ),
               ),
             ],
@@ -344,11 +337,11 @@ class _ChatInputBarState extends State<ChatInputBar>
           child: Container(
             width: 48,
             height: 48,
-            decoration: BoxDecoration(
-              color: isDark ? AppTheme.primaryDark : AppTheme.primaryLight,
+            decoration: const BoxDecoration(
+              color: Colors.black,
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.check, color: Colors.white, size: 24),
+            child: const Icon(Icons.check_rounded, color: Colors.white, size: 24),
           ),
         ),
       ],

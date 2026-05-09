@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/services/auth_service.dart';
 import '../../../../core/security/session_manager.dart';
 import '../providers/chat_provider.dart';
+import '../providers/friend_provider.dart';
 
 class FriendsPage extends ConsumerStatefulWidget {
   const FriendsPage({super.key});
@@ -47,205 +47,275 @@ class _FriendsPageState extends ConsumerState<FriendsPage>
     }
   }
 
+  Future<void> _sendFriendRequest(String userId) async {
+    try {
+      await ref.read(friendRepositoryProvider).sendRequest(userId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('FRIEND REQUEST TRANSMITTED'), backgroundColor: Colors.black),
+        );
+        ref.invalidate(sentRequestsProvider);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('TRANSMISSION FAILED: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
   Future<void> _startChat(String userId, String displayName) async {
-    final router = GoRouter.of(context);
-    final messenger = ScaffoldMessenger.of(context);
     try {
       await ref.read(chatSessionsProvider.notifier).createSession(userId, displayName);
       if (!mounted) return;
       await ref.read(chatSessionsProvider.notifier).refresh();
-      final sessions = ref.read(chatSessionsProvider);
-      if (sessions.isEmpty) return;
-      final session = sessions.firstWhere(
-        (s) => s.peerId == userId,
-        orElse: () => sessions.first,
-      );
-      router.push('/sys_config/chat/${session.id}');
-    } catch (e) {
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(content: Text('Error: $e')));
+      final sessions = ref.read(chatSessionsProvider);
+      final session = sessions.firstWhere((s) => s.peerId == userId);
+      if (!mounted) return;
+      context.push('/sys_config/chat/${session.id}');
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ERROR: $e')));
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text('Friends'),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.black),
+          onPressed: () => context.pop(),
+        ),
+        title: const Text(
+          'GLOBAL DIRECTORY',
+          style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900, fontSize: 16, letterSpacing: 1.0),
+        ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.lock_outline),
-            onPressed: () {
-              ref.read(sessionProvider.notifier).lock();
-              context.go('/');
-            },
-            tooltip: 'Panic Lock',
+            icon: const Icon(Icons.emergency_rounded, color: Colors.red),
+            onPressed: () => ref.read(sessionProvider.notifier).panic(),
           ),
         ],
         bottom: TabBar(
           controller: _tabController,
+          indicatorColor: Colors.black,
+          labelColor: Colors.black,
+          unselectedLabelColor: Colors.black38,
+          indicatorWeight: 4,
+          labelStyle: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12, letterSpacing: 0.5),
           tabs: const [
-            Tab(icon: Icon(Icons.people), text: 'Friends'),
-            Tab(icon: Icon(Icons.search), text: 'Find People'),
+            Tab(text: 'AUTHORIZED FRIENDS'),
+            Tab(text: 'FIND PEOPLE'),
           ],
         ),
       ),
       body: TabBarView(
         controller: _tabController,
         children: [
-          _buildFriendsList(isDark),
-          _buildFindPeople(isDark),
+          _buildFriendsList(),
+          _buildFindPeople(),
         ],
       ),
     );
   }
 
-  Widget _buildFriendsList(bool isDark) {
-    final sessions = ref.watch(chatSessionsProvider);
-    if (sessions.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.people_outline, size: 80, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            Text('No friends yet',
-                style: TextStyle(fontSize: 18, color: Colors.grey[600])),
-            const SizedBox(height: 8),
-            Text('Use the "Find People" tab to add friends',
-                style: TextStyle(fontSize: 14, color: Colors.grey[500])),
-          ],
-        ),
-      );
-    }
-    return ListView.builder(
-      itemCount: sessions.length,
-      itemBuilder: (context, index) {
-        final s = sessions[index];
-        return ListTile(
-          leading: CircleAvatar(
-            backgroundColor: isDark ? AppTheme.primaryDark : AppTheme.primaryLight,
-            child: Text(
-              s.peerName.isNotEmpty ? s.peerName[0].toUpperCase() : '?',
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-            ),
-          ),
-          title: Text(s.peerName),
-          subtitle: Text(s.lastMessage?.content ?? 'Tap to chat'),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IconButton(
-                icon: const Icon(Icons.message_outlined),
-                onPressed: () => context.push('/sys_config/chat/${s.id}'),
+  Widget _buildFriendsList() {
+    final friendsAsync = ref.watch(friendsProvider);
+
+    return friendsAsync.when(
+      data: (friends) {
+        if (friends.isEmpty) {
+          return _buildEmptyState(
+            Icons.people_outline_rounded,
+            'NO AUTHORIZED PEERS',
+            'Your secure network is currently empty.',
+          );
+        }
+        return ListView.separated(
+          padding: const EdgeInsets.symmetric(vertical: 20),
+          itemCount: friends.length,
+          separatorBuilder: (context, index) => const Divider(height: 1, indent: 84, color: Color(0xFFF0F2F5)),
+          itemBuilder: (context, index) {
+            final friend = friends[index];
+            final name = friend['display_name'] ?? friend['username'] ?? 'Unknown';
+            final userId = friend['id'];
+            final isOnline = friend['is_online'] ?? false;
+
+            return ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              leading: Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(20)),
+                child: Center(
+                  child: Text(
+                    name[0].toUpperCase(),
+                    style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900),
+                  ),
+                ),
               ),
-              IconButton(
-                icon: const Icon(Icons.call_outlined),
-                onPressed: () => context.push('/sys_config/call/audio/${s.id}'),
+              title: Text(name, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+              subtitle: Row(
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(color: isOnline ? Colors.green : Colors.black12, shape: BoxShape.circle),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    isOnline ? 'ONLINE' : 'OFFLINE',
+                    style: TextStyle(color: isOnline ? Colors.green : Colors.black38, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 0.5),
+                  ),
+                ],
               ),
-              IconButton(
-                icon: const Icon(Icons.videocam_outlined),
-                onPressed: () => context.push('/sys_config/call/video/${s.id}'),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildActionButton(Icons.chat_bubble_outline_rounded, () => _startChat(userId, name)),
+                  const SizedBox(width: 8),
+                  _buildActionButton(Icons.call_outlined, () => context.push('/sys_config/call/audio/$userId')),
+                ],
               ),
-            ],
-          ),
+            );
+          },
         );
       },
+      loading: () => const Center(child: CircularProgressIndicator(color: Colors.black)),
+      error: (e, _) => Center(child: Text('ERROR: $e')),
     );
   }
 
-  Widget _buildFindPeople(bool isDark) {
+  Widget _buildActionButton(IconData icon, VoidCallback onTap) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8F9FA),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFF0F2F5)),
+      ),
+      child: IconButton(
+        icon: Icon(icon, color: Colors.black, size: 20),
+        onPressed: onTap,
+      ),
+    );
+  }
+
+  Widget _buildFindPeople() {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.all(16),
-          child: TextField(
-            controller: _searchController,
-            autofocus: true,
-            decoration: InputDecoration(
-              hintText: 'Search by name or username...',
-              prefixIcon: const Icon(Icons.search),
-              suffixIcon: _searchController.text.isNotEmpty
-                  ? IconButton(
-                      icon: const Icon(Icons.clear),
-                      onPressed: () {
-                        _searchController.clear();
-                        _searchUsers('');
-                      },
-                    )
-                  : null,
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          padding: const EdgeInsets.all(20),
+          child: Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8F9FA),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFF0F2F5)),
             ),
-            onChanged: _searchUsers,
+            child: TextField(
+              controller: _searchController,
+              onChanged: _searchUsers,
+              style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: -0.2),
+              decoration: const InputDecoration(
+                hintText: 'SEARCH BY IDENTITY...',
+                hintStyle: TextStyle(color: Colors.black12, fontWeight: FontWeight.w900, fontSize: 12, letterSpacing: 1.0),
+                prefixIcon: Icon(Icons.search_rounded, color: Colors.black),
+                border: InputBorder.none,
+                contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              ),
+            ),
           ),
         ),
         Expanded(
           child: _isSearching
-              ? const Center(child: CircularProgressIndicator())
+              ? const Center(child: CircularProgressIndicator(color: Colors.black))
               : _searchResults.isEmpty
-                  ? Center(
-                      child: Text(
-                        _searchController.text.isEmpty
-                            ? 'Search for people to add'
-                            : 'No users found',
-                        style: TextStyle(color: Colors.grey[500]),
-                      ),
+                  ? _buildEmptyState(
+                      Icons.person_search_rounded,
+                      'SEARCH THE VAULT',
+                      'Find people by their username or display name.',
                     )
-                  : ListView.builder(
+                  : ListView.separated(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
                       itemCount: _searchResults.length,
+                      separatorBuilder: (context, index) => const Divider(height: 1, indent: 84, color: Color(0xFFF0F2F5)),
                       itemBuilder: (context, index) {
                         final user = _searchResults[index];
-                        final displayName = user['display_name'] ?? 'Unknown';
+                        final name = user['display_name'] ?? user['username'] ?? 'Unknown';
                         final username = user['username'] ?? '';
-                        final isOnline = user['is_online'] ?? false;
+                        final userId = user['id'];
+
                         return ListTile(
-                          leading: Stack(
-                            children: [
-                              CircleAvatar(
-                                backgroundImage: user['avatar_url'] != null
-                                    ? NetworkImage(user['avatar_url'])
-                                    : null,
-                                backgroundColor: isDark
-                                    ? AppTheme.primaryDark
-                                    : AppTheme.primaryLight,
-                                child: user['avatar_url'] == null
-                                    ? Text(
-                                        displayName[0].toUpperCase(),
-                                        style: const TextStyle(
-                                            color: Colors.white,
-                                            fontWeight: FontWeight.bold),
-                                      )
-                                    : null,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                          leading: Container(
+                            width: 56,
+                            height: 56,
+                            decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(20)),
+                            child: Center(
+                              child: Text(
+                                name[0].toUpperCase(),
+                                style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900),
                               ),
-                              if (isOnline)
-                                Positioned(
-                                  right: 0,
-                                  bottom: 0,
-                                  child: Container(
-                                    width: 12,
-                                    height: 12,
-                                    decoration: BoxDecoration(
-                                      color: Colors.green,
-                                      shape: BoxShape.circle,
-                                      border: Border.all(color: Colors.white, width: 2),
-                                    ),
-                                  ),
-                                ),
-                            ],
+                            ),
                           ),
-                          title: Text(displayName),
-                          subtitle: Text('@$username'),
-                          trailing: ElevatedButton.icon(
-                            icon: const Icon(Icons.message, size: 16),
-                            label: const Text('Message'),
-                            onPressed: () => _startChat(user['id'], displayName),
+                          title: Text(name, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                          subtitle: Text('@$username', style: const TextStyle(color: Colors.black38, fontSize: 12, fontWeight: FontWeight.w700)),
+                          trailing: Consumer(
+                            builder: (context, ref, child) {
+                              final statusAsync = ref.watch(friendshipStatusProvider(userId));
+                              return statusAsync.when(
+                                data: (status) {
+                                  if (status['is_friend'] == true) {
+                                    return _buildActionButton(Icons.chat_bubble_outline_rounded, () => _startChat(userId, name));
+                                  }
+                                  final reqStatus = status['request_status'];
+                                  if (reqStatus == 'pending') {
+                                    return const Text('PENDING', style: TextStyle(color: Colors.black38, fontWeight: FontWeight.w900, fontSize: 10));
+                                  }
+                                  return ElevatedButton(
+                                    onPressed: () => _sendFriendRequest(userId),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.black,
+                                      foregroundColor: Colors.white,
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                    ),
+                                    child: const Text('ADD FRIEND', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11)),
+                                  );
+                                },
+                                loading: () => const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2)),
+                                error: (_, __) => const Icon(Icons.error_outline),
+                              );
+                            },
                           ),
                         );
                       },
                     ),
         ),
       ],
+    );
+  }
+
+  Widget _buildEmptyState(IconData icon, String title, String subtitle) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: const BoxDecoration(color: Color(0xFFF8F9FA), shape: BoxShape.circle),
+            child: Icon(icon, size: 48, color: Colors.black12),
+          ),
+          const SizedBox(height: 24),
+          Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: Colors.black, letterSpacing: 1.0)),
+          const SizedBox(height: 8),
+          Text(subtitle, style: const TextStyle(color: Colors.black38, fontSize: 13)),
+        ],
+      ),
     );
   }
 }

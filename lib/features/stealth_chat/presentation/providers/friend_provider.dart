@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/di/injection_container.dart';
 import '../../data/repositories/friend_repository.dart';
 
@@ -7,14 +8,71 @@ final friendRepositoryProvider = Provider<FriendRepository>((ref) {
   return FriendRepository(ref.read(supabaseProvider));
 });
 
-// Friends List Provider
-final friendsProvider = FutureProvider<List<Map<String, dynamic>>>((ref) async {
-  return ref.read(friendRepositoryProvider).getFriends();
+// Friends List Provider - Auto-refresh with realtime
+final friendsProvider = StreamProvider<List<Map<String, dynamic>>>((ref) async* {
+  final repo = ref.read(friendRepositoryProvider);
+  final supabase = ref.read(supabaseProvider);
+  final currentUserId = supabase.auth.currentUser?.id;
+
+  // Initial fetch
+  yield await repo.getFriends();
+
+  // Subscribe to changes
+  if (currentUserId != null) {
+    final channel = supabase
+        .channel('friends_changes:$currentUserId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'friend_requests',
+          callback: (payload) async {
+            // Refresh on any change
+            ref.invalidateSelf();
+          },
+        )
+        .subscribe();
+
+    // Cleanup on dispose
+    ref.onDispose(() {
+      channel.unsubscribe();
+    });
+  }
 });
 
-// Pending Requests Provider
-final pendingRequestsProvider = FutureProvider<List<Map<String, dynamic>>>((ref) async {
-  return ref.read(friendRepositoryProvider).getPendingRequests();
+// Pending Requests Provider - Auto-refresh with realtime
+final pendingRequestsProvider = StreamProvider<List<Map<String, dynamic>>>((ref) async* {
+  final repo = ref.read(friendRepositoryProvider);
+  final supabase = ref.read(supabaseProvider);
+  final currentUserId = supabase.auth.currentUser?.id;
+
+  // Initial fetch
+  yield await repo.getPendingRequests();
+
+  // Subscribe to changes
+  if (currentUserId != null) {
+    final channel = supabase
+        .channel('pending_requests:$currentUserId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'friend_requests',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'receiver_id',
+            value: currentUserId,
+          ),
+          callback: (payload) async {
+            // Refresh on any change
+            ref.invalidateSelf();
+          },
+        )
+        .subscribe();
+
+    // Cleanup on dispose
+    ref.onDispose(() {
+      channel.unsubscribe();
+    });
+  }
 });
 
 // Sent Requests Provider

@@ -201,12 +201,9 @@ class _GroupChatPageState extends ConsumerState<GroupChatPage> {
               final text = _messageController.text.trim();
               if (text.isEmpty) return;
               if (currentUserId == null) return;
-              final deviceId = ref.read(deviceIdProvider);
               ref.read(chatProvider(widget.groupId).notifier).sendMessage(
                     content: text,
                     senderId: currentUserId,
-                    senderDeviceId: deviceId,
-                    receiverId: widget.groupId,
                   );
               _messageController.clear();
               Future.delayed(
