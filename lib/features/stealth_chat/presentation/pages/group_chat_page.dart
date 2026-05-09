@@ -30,6 +30,7 @@ class _GroupChatPageState extends ConsumerState<GroupChatPage> {
 
   void _loadGroupInfo() {
     final sessions = ref.read(chatSessionsProvider);
+    if (sessions.isEmpty) return;
     final session = sessions.firstWhere(
       (s) => s.id == widget.groupId,
       orElse: () => sessions.first,

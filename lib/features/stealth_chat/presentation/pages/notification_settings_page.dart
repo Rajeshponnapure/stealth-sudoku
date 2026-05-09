@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class NotificationSettingsPage extends ConsumerStatefulWidget {
   const NotificationSettingsPage({super.key});
@@ -19,13 +20,43 @@ class _NotificationSettingsPageState
   bool _vibrationEnabled = true;
   bool _previewEnabled = false; // stealth — hide preview by default
 
+  static const _keyMessage = 'notif_messages';
+  static const _keyCall = 'notif_calls';
+  static const _keyGroup = 'notif_groups';
+  static const _keySound = 'notif_sound';
+  static const _keyVibration = 'notif_vibration';
+  static const _keyPreview = 'notif_preview';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      _messageNotifications = prefs.getBool(_keyMessage) ?? true;
+      _callNotifications = prefs.getBool(_keyCall) ?? true;
+      _groupNotifications = prefs.getBool(_keyGroup) ?? true;
+      _soundEnabled = prefs.getBool(_keySound) ?? true;
+      _vibrationEnabled = prefs.getBool(_keyVibration) ?? true;
+      _previewEnabled = prefs.getBool(_keyPreview) ?? false;
+    });
+  }
+
   Future<void> _saveSettings() async {
-    // ✅ Capture BEFORE await
     final messenger = ScaffoldMessenger.of(context);
     final router = GoRouter.of(context);
 
-    // Simulate saving to preferences
-    await Future.delayed(const Duration(milliseconds: 300));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyMessage, _messageNotifications);
+    await prefs.setBool(_keyCall, _callNotifications);
+    await prefs.setBool(_keyGroup, _groupNotifications);
+    await prefs.setBool(_keySound, _soundEnabled);
+    await prefs.setBool(_keyVibration, _vibrationEnabled);
+    await prefs.setBool(_keyPreview, _previewEnabled);
 
     if (!mounted) return;
     messenger.showSnackBar(

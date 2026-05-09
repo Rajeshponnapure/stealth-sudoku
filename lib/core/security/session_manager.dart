@@ -49,6 +49,7 @@ class SessionManager {
   final BiometricService _biometricService;
   Timer? _sessionTimer;
   static const String _biometricKey = 'biometric_enabled';
+  static const String _savedPinKey = '_saved_pin';
 
   SessionManager(
     this._secureStorage,
@@ -96,6 +97,9 @@ class SessionManager {
         }
       }
       } // <-- Added closing brace for the main else block
+
+      // Save PIN securely for biometric re-auth
+      await _secureStorage.write(_savedPinKey, credentials);
 
       // Generate session key
       final sessionKey = await _cryptoService.generateKey();
@@ -202,6 +206,11 @@ class SessionManager {
     return credentials != null;
   }
 
+  // Retrieve stored PIN for vault re-auth after biometric unlock
+  Future<String?> getSavedPin() async {
+    return await _secureStorage.read(_savedPinKey);
+  }
+
   void dispose() {
     _sessionTimer?.cancel();
   }
@@ -279,5 +288,9 @@ class SessionNotifier extends StateNotifier<SessionState> {
 
   void updateActivity() {
     _sessionManager.updateActivity();
+  }
+
+  Future<String?> getSavedPin() async {
+    return await _sessionManager.getSavedPin();
   }
 }
