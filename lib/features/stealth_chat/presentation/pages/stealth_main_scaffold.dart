@@ -36,7 +36,11 @@ class _StealthMainScaffoldState extends ConsumerState<StealthMainScaffold> {
 
   @override
   void dispose() {
-    ref.read(callSignalingServiceProvider).stopListeningForCalls();
+    try {
+      ref.read(callSignalingServiceProvider).stopListeningForCalls();
+    } catch (e) {
+      debugPrint('Error stopping call listener: $e');
+    }
     super.dispose();
   }
 

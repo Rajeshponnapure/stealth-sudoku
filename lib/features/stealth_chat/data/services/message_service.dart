@@ -126,7 +126,9 @@ Future<void> deleteChatSession(String chatId) async {
           )
         ''')
         .or('creator_id.eq.$currentUserId,participant_ids.cs.{$currentUserId}')
-        .order('updated_at', ascending: false);
+        .order('updated_at', ascending: false)
+        .order('created_at', referencedTable: 'messages', ascending: false)
+        .limit(1, referencedTable: 'messages');
 
     return (response as List).map((json) {
       // Get last message
@@ -150,10 +152,15 @@ Future<void> deleteChatSession(String chatId) async {
         );
       }
 
+      final participantIds = json['participant_ids'] as List;
+      final peerId = participantIds.cast<String>().firstWhere(
+        (id) => id != currentUserId,
+        orElse: () => currentUserId,
+      );
+
       return ChatSession(
         id: json['id'],
-        peerId: (json['participant_ids'] as List)
-            .firstWhere((id) => id != currentUserId),
+        peerId: peerId,
         peerName: '', // Will be fetched separately
         lastMessage: lastMessage,
         createdAt: DateTime.parse(json['created_at']),

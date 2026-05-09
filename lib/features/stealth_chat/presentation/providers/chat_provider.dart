@@ -242,20 +242,23 @@ Future<void> deleteSession(String chatId) async {
 
 
   Future<void> markAsRead(String chatId) async {
-    final session = state.firstWhere((s) => s.id == chatId);
-    final updated = session.copyWith(unreadCount: 0);
+    final idx = state.indexWhere((s) => s.id == chatId);
+    if (idx == -1) return;
+    final updated = state[idx].copyWith(unreadCount: 0);
     await updateSession(updated);
   }
 
   Future<void> togglePin(String chatId) async {
-    final session = state.firstWhere((s) => s.id == chatId);
-    final updated = session.copyWith(isPinned: !session.isPinned);
+    final idx = state.indexWhere((s) => s.id == chatId);
+    if (idx == -1) return;
+    final updated = state[idx].copyWith(isPinned: !state[idx].isPinned);
     await updateSession(updated);
   }
 
   Future<void> toggleMute(String chatId) async {
-    final session = state.firstWhere((s) => s.id == chatId);
-    final updated = session.copyWith(isMuted: !session.isMuted);
+    final idx = state.indexWhere((s) => s.id == chatId);
+    if (idx == -1) return;
+    final updated = state[idx].copyWith(isMuted: !state[idx].isMuted);
     await updateSession(updated);
   }
 

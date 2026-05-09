@@ -369,17 +369,52 @@ class _StealthUnlockPageState extends ConsumerState<StealthUnlockPage> {
 
       if (!mounted) return;
 
-      setState(() {
-        _isLoading = false;
-      });
-
       if (success) {
         debugPrint('🔐 Biometric unlock successful');
+
+        // Perform vault login so Supabase is authenticated
+        final authService = ref.read(authServiceProvider);
+        if (!authService.isAuthenticated) {
+          try {
+            final prefs = ref.read(preferencesServiceProvider);
+            final savedUsername = await prefs.getNickname();
+            final roomId = await prefs.getRoomId();
+            final savedPin = await ref.read(sessionProvider.notifier).getSavedPin();
+
+            if (savedUsername == null || roomId == null || savedPin == null) {
+              await ref.read(sessionProvider.notifier).lock();
+              if (!mounted) return;
+              setState(() {
+                _errorMessage = 'Saved credentials not found. Please unlock with PIN first.';
+                _isLoading = false;
+              });
+              return;
+            }
+
+            await authService.signInToVault(savedUsername, savedPin, roomId, allowRegistration: false);
+          } catch (e) {
+            debugPrint('🔐 Biometric vault login failed: $e');
+            await ref.read(sessionProvider.notifier).lock();
+            if (!mounted) return;
+            setState(() {
+              _errorMessage = 'Vault login failed. Please unlock with PIN.';
+              _isLoading = false;
+            });
+            return;
+          }
+        }
+
+        if (!mounted) return;
+        setState(() {
+          _isLoading = false;
+        });
+
         if (mounted) {
           context.go('/sys_config/list');
         }
       } else {
         setState(() {
+          _isLoading = false;
           _errorMessage = 'Biometric authentication failed';
         });
       }

@@ -136,16 +136,17 @@ class _ChatListPageState extends ConsumerState<ChatListPage> {
       await ref
           .read(chatSessionsProvider.notifier)
           .createSession(participantId, displayName);
-      if (mounted) {
-        _searchController.clear();
-        ref.read(chatSessionsProvider.notifier).refresh();
-        final sessions = ref.read(chatSessionsProvider);
-        final newSession = sessions.firstWhere(
-          (s) => s.peerId == participantId,
-          orElse: () => sessions.first,
-        );
-        context.push('/sys_config/chat/${newSession.id}');
-      }
+      if (!mounted) return;
+      _searchController.clear();
+      await ref.read(chatSessionsProvider.notifier).refresh();
+      if (!mounted) return;
+      final sessions = ref.read(chatSessionsProvider);
+      if (sessions.isEmpty) return;
+      final newSession = sessions.firstWhere(
+        (s) => s.peerId == participantId,
+        orElse: () => sessions.first,
+      );
+      context.push('/sys_config/chat/${newSession.id}');
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

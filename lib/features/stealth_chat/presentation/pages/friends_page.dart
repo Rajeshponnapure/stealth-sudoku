@@ -53,8 +53,9 @@ class _FriendsPageState extends ConsumerState<FriendsPage>
     try {
       await ref.read(chatSessionsProvider.notifier).createSession(userId, displayName);
       if (!mounted) return;
-      ref.read(chatSessionsProvider.notifier).refresh();
+      await ref.read(chatSessionsProvider.notifier).refresh();
       final sessions = ref.read(chatSessionsProvider);
+      if (sessions.isEmpty) return;
       final session = sessions.firstWhere(
         (s) => s.peerId == userId,
         orElse: () => sessions.first,

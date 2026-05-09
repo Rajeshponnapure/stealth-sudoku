@@ -56,6 +56,11 @@ class _StealthRegistrationPageState extends ConsumerState<StealthRegistrationPag
           // Navigate to the chat list (Home Section)
           context.go('/sys_config/list');
         }
+      } else {
+        setState(() {
+          _errorMessage = 'Registration failed: No user returned';
+          _isLoading = false;
+        });
       }
     } catch (e) {
       setState(() {
