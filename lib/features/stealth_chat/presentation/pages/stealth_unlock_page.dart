@@ -381,14 +381,28 @@ class _StealthUnlockPageState extends ConsumerState<StealthUnlockPage> {
             final roomId = await prefs.getRoomId();
             final savedPin = await ref.read(sessionProvider.notifier).getSavedPin();
 
-            if (savedUsername != null && roomId != null && savedPin != null) {
-              await authService.signInToVault(savedUsername, savedPin, roomId, allowRegistration: false);
+            if (savedUsername == null || roomId == null || savedPin == null) {
+              if (!mounted) return;
+              setState(() {
+                _errorMessage = 'Saved credentials not found. Please unlock with PIN first.';
+                _isLoading = false;
+              });
+              return;
             }
+
+            await authService.signInToVault(savedUsername, savedPin, roomId, allowRegistration: false);
           } catch (e) {
             debugPrint('🔐 Biometric vault login failed: $e');
+            if (!mounted) return;
+            setState(() {
+              _errorMessage = 'Vault login failed. Please unlock with PIN.';
+              _isLoading = false;
+            });
+            return;
           }
         }
 
+        if (!mounted) return;
         setState(() {
           _isLoading = false;
         });

@@ -187,6 +187,9 @@ class SessionManager {
     final hash = await _cryptoService.hashPassword(newCredentials, salt);
     await _secureStorage.write(StorageKeys.userCredentials, '$salt:$hash');
 
+    // Update saved PIN so biometric re-auth uses the new credentials
+    await _secureStorage.write(_savedPinKey, newCredentials);
+
     return true;
   }
 
